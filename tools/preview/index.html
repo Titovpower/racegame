@@ -311,11 +311,41 @@ function overlay(frame) {
     g.fillStyle = 'white'; g.fillText(r.name, pad + 47*d, base);
     g.fillStyle = r.player ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.67)'; g.fillText(r.car, pad + 112*d, base);
   });
+  settings(g, W, H, d);
   if (frame.win) win(frame, g, W, H, d);
   if (frame.countdown > 0) {
     const n = Math.ceil(frame.countdown - 0.5);
     if (n >= 1 && n <= 3) { g.textAlign = 'center'; g.font = `italic bold ${72*d}px sans-serif`; g.shadowBlur = 8; g.fillText(String(n), W / 2, H * 0.32); g.shadowBlur = 0; }
   }
+}
+// Gear button bottom right; with &settings the sensitivity panel is open (as in ControlOverlayView).
+function settings(g, W, H, d) {
+  const gr = 22*d, gx = W - gr - 18*d, gy = H - gr - 18*d;
+  g.fillStyle = 'rgba(12,14,18,0.59)'; g.beginPath(); g.arc(gx, gy, gr * 1.25, 0, 7); g.fill();
+  g.fillStyle = 'rgba(235,235,240,0.9)';
+  g.save(); g.translate(gx, gy);
+  for (let k = 0; k < 8; k++) { g.rotate(Math.PI / 4); g.beginPath(); g.roundRect(-gr*0.17, -gr*0.82, gr*0.34, gr*0.37, gr*0.05); g.fill(); }
+  g.beginPath(); g.arc(0, 0, gr * 0.58, 0, 7); g.fill();
+  g.fillStyle = 'rgb(30,32,38)'; g.beginPath(); g.arc(0, 0, gr * 0.25, 0, 7); g.fill();
+  g.restore();
+  if (!q.has('settings')) return;
+  const pw = Math.min(W * 0.7, 420*d), ph = 230*d, left = (W - pw) / 2, top = (H - ph) / 2;
+  g.fillStyle = 'rgba(12,14,18,0.88)'; g.beginPath(); g.roundRect(left, top, pw, ph, 16*d); g.fill();
+  g.fillStyle = 'white'; g.font = `bold ${15*d}px sans-serif`; g.textAlign = 'center';
+  g.fillText('CONTROL SENSITIVITY', W / 2, top + 30*d);
+  [['Steering wheel', 1.4], ['Acceleration', 1.0], ['Brakes', 0.8]].forEach(([name, v], k) => {
+    const y = top + 62*d + k * 48*d;
+    g.fillStyle = 'white'; g.textAlign = 'left'; g.fillText(name, left + 20*d, y);
+    g.textAlign = 'right'; g.fillText(`${Math.round(v * 100)}%`, left + pw - 20*d, y);
+    const tl = left + 20*d, tw = pw - 40*d, t = (v - 0.4) / 2.1, kx = tl + t * tw;
+    g.fillStyle = 'rgba(0,0,0,0.43)'; g.beginPath(); g.roundRect(tl, y + 12*d, tw, 6*d, 3*d); g.fill();
+    g.fillStyle = 'rgb(229,57,53)'; g.beginPath(); g.roundRect(tl, y + 12*d, kx - tl, 6*d, 3*d); g.fill();
+    g.fillStyle = 'white'; g.beginPath(); g.arc(kx, y + 15*d, 10*d, 0, 7); g.fill();
+  });
+  const bw = 110*d, bh = 30*d, by = top + ph - bh - 12*d;
+  g.fillStyle = 'rgb(200,16,46)'; g.beginPath(); g.roundRect(W / 2 - bw / 2, by, bw, bh, bh / 2); g.fill();
+  g.fillStyle = 'white'; g.textAlign = 'center'; g.fillText('DONE', W / 2, by + bh / 2 + 5*d);
+  g.textAlign = 'left';
 }
 function win(frame, g, W, H, d) {
   const p = frame.winPos || [0.5, 0.35], size = 64 * d;

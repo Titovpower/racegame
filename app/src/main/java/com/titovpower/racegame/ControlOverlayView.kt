@@ -24,6 +24,7 @@ class ControlOverlayView(
     context: Context,
     private val controls: Controls,
     private val telemetry: Telemetry,
+    private val settings: Settings,
 ) : View(context) {
 
     private val density = resources.displayMetrics.density
@@ -110,6 +111,7 @@ class ControlOverlayView(
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (settingsTouch(event)) return true
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                 if (activePointer == -1) {
@@ -130,8 +132,9 @@ class ControlOverlayView(
             MotionEvent.ACTION_MOVE -> {
                 val i = event.findPointerIndex(activePointer)
                 if (i >= 0) {
-                    steer = clamp((event.getX(i) - startX) / (wheelRadius * 1.1f), -1f, 1f)
-                    pedal = clamp(-(event.getY(i) - startY) / (wheelRadius * 0.8f), -1f, 1f)
+                    steer = clamp((event.getX(i) - startX) / (wheelRadius * 1.1f) * settings.steering, -1f, 1f)
+                    val travel = -(event.getY(i) - startY) / (wheelRadius * 0.8f)
+                    pedal = clamp(travel * if (travel > 0f) settings.throttle else settings.brake, -1f, 1f)
                     publish()
                 }
             }
@@ -180,6 +183,7 @@ class ControlOverlayView(
         drawRaceMessages(canvas)
         drawPedalGauge(canvas)
         drawWheel(canvas)
+        drawSettings(canvas)
         postInvalidateOnAnimation()
     }
 
@@ -429,6 +433,118 @@ class ControlOverlayView(
         canvas.drawText("YOU WIN", x, y, winOutline)
         canvas.drawText("YOU WIN", x, y, winPaint)
         return y
+    }
+
+    // Settings: a gear button in the bottom-right corner opens sliders for the control sensitivities.
+    private var settingsOpen = false
+    private val gearButton = RectF()
+    private val settingsPanel = RectF()
+    private val closeButton = RectF()
+    private val sliderTracks = Array(3) { RectF() }
+    private var draggingSlider = -1
+    private val gearPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(230, 235, 235, 240) }
+    private val gearHole = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(255, 30, 32, 38) }
+    private val sliderFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(229, 57, 53) }
+    private val knobPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+
+    private fun sliderValue(k: Int) = when (k) { 0 -> settings.steering; 1 -> settings.throttle; else -> settings.brake }
+
+    private fun setSlider(k: Int, x: Float) {
+        val t = clamp((x - sliderTracks[k].left) / sliderTracks[k].width(), 0f, 1f)
+        val v = Settings.MIN + t * (Settings.MAX - Settings.MIN)
+        when (k) { 0 -> settings.steering = v; 1 -> settings.throttle = v; else -> settings.brake = v }
+    }
+
+    /** Handles touches on the gear button and the open settings panel; true if consumed. */
+    private fun settingsTouch(event: MotionEvent): Boolean {
+        val i = event.actionIndex
+        val x = event.getX(i)
+        val y = event.getY(i)
+        if (!settingsOpen) {
+            if (activePointer == -1 && !telemetry.picking && event.actionMasked == MotionEvent.ACTION_DOWN && gearButton.contains(x, y)) {
+                settingsOpen = true
+                release()
+                return true
+            }
+            return false
+        }
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                if (closeButton.contains(x, y) || !settingsPanel.contains(x, y)) {
+                    settingsOpen = false
+                    draggingSlider = -1
+                } else {
+                    for (k in 0 until 3) {
+                        val tr = sliderTracks[k]
+                        if (y in tr.top - 18f * density..tr.bottom + 18f * density && x in tr.left - 14f * density..tr.right + 14f * density) {
+                            draggingSlider = k
+                            setSlider(k, x)
+                        }
+                    }
+                }
+            }
+            MotionEvent.ACTION_MOVE -> if (draggingSlider >= 0) setSlider(draggingSlider, event.getX(0))
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> draggingSlider = -1
+        }
+        return true
+    }
+
+    private fun drawSettings(canvas: Canvas) {
+        val d = density
+        val gr = 22f * d
+        val gx = width - gr - 18f * d
+        val gy = height - gr - 18f * d
+        gearButton.set(gx - gr * 1.4f, gy - gr * 1.4f, gx + gr * 1.4f, gy + gr * 1.4f)
+        canvas.drawCircle(gx, gy, gr * 1.25f, panelPaint)
+        // Gear: a disc with eight teeth and a hole.
+        canvas.save()
+        canvas.translate(gx, gy)
+        for (k in 0 until 8) {
+            canvas.rotate(45f)
+            rect.set(-gr * 0.17f, -gr * 0.82f, gr * 0.17f, -gr * 0.45f)
+            canvas.drawRoundRect(rect, gr * 0.05f, gr * 0.05f, gearPaint)
+        }
+        canvas.drawCircle(0f, 0f, gr * 0.58f, gearPaint)
+        canvas.drawCircle(0f, 0f, gr * 0.25f, gearHole)
+        canvas.restore()
+        if (!settingsOpen) return
+
+        val pw = min(width * 0.7f, 420f * d)
+        val ph = 230f * d
+        val left = (width - pw) / 2f
+        val top = (height - ph) / 2f
+        settingsPanel.set(left, top, left + pw, top + ph)
+        panelPaint.alpha = 225
+        canvas.drawRoundRect(settingsPanel, 16f * d, 16f * d, panelPaint)
+        panelPaint.alpha = 150
+        labelPaint.textAlign = Paint.Align.CENTER
+        canvas.drawText("CONTROL SENSITIVITY", width / 2f, top + 30f * d, labelPaint)
+        val names = arrayOf("Steering wheel", "Acceleration", "Brakes")
+        labelPaint.textAlign = Paint.Align.LEFT
+        for (k in 0 until 3) {
+            val y = top + 62f * d + k * 48f * d
+            canvas.drawText(names[k], left + 20f * d, y, labelPaint)
+            val v = sliderValue(k)
+            val pct = String.format(Locale.US, "%d%%", (v * 100).toInt())
+            labelPaint.textAlign = Paint.Align.RIGHT
+            canvas.drawText(pct, left + pw - 20f * d, y, labelPaint)
+            labelPaint.textAlign = Paint.Align.LEFT
+            val tr = sliderTracks[k]
+            tr.set(left + 20f * d, y + 12f * d, left + pw - 20f * d, y + 18f * d)
+            canvas.drawRoundRect(tr, 3f * d, 3f * d, trackPaint)
+            val t = (v - Settings.MIN) / (Settings.MAX - Settings.MIN)
+            val kx = tr.left + t * tr.width()
+            rect.set(tr.left, tr.top, kx, tr.bottom)
+            canvas.drawRoundRect(rect, 3f * d, 3f * d, sliderFill)
+            canvas.drawCircle(kx, tr.centerY(), 10f * d, knobPaint)
+        }
+        val bw = 110f * d
+        val bh = 30f * d
+        closeButton.set(width / 2f - bw / 2f, top + ph - bh - 12f * d, width / 2f + bw / 2f, top + ph - 12f * d)
+        canvas.drawRoundRect(closeButton, bh / 2f, bh / 2f, startPaint)
+        labelPaint.textAlign = Paint.Align.CENTER
+        canvas.drawText("DONE", width / 2f, closeButton.centerY() + labelPaint.textSize * 0.35f, labelPaint)
+        labelPaint.textAlign = Paint.Align.LEFT
     }
 
     private fun formatTime(seconds: Float): String {

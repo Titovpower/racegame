@@ -20,13 +20,25 @@ data class Surface(
     val rolling: Float,
     /** Extra drag from bumps and soft ground, as deceleration per m/s of speed. */
     val rough: Float,
-    /** Share of engine power that becomes thrust (the rest is lost to wheelspin). */
+    /** Share of engine power that becomes thrust (the rest churns the ground). */
     val power: Float = 1f,
+    /** Soft ground (0..1): tire size matters, wide tires find more grip but plough more, big wheels roll over bumps. */
+    val soft: Float = 0f,
+    /** Grip lost once the driven tires spin (sliding friction is lower than gripping). */
+    val spinLoss: Float = 0f,
 ) {
     companion object {
         val STREET = Surface("STREET", grip = 1f, rolling = 0.013f, rough = 0f)
-        val GRASS = Surface("GRASS", grip = 0.45f, rolling = 0.06f, rough = 0.05f, power = 0.25f)
+        val GRASS = Surface("GRASS", grip = 0.45f, rolling = 0.06f, rough = 0.05f, power = 0.4f, soft = 1f, spinLoss = 0.25f)
     }
+}
+
+/** Tire size as printed on the sidewall, e.g. 305/30 R20. */
+class Tyre(val widthMm: Int, val aspect: Int, val rimInch: Int) {
+    val width get() = widthMm / 1000f
+    /** Rolling radius, m. */
+    val radius get() = rimInch * 0.0254f / 2f + width * aspect / 100f
+    override fun toString() = "$widthMm/$aspect R$rimInch"
 }
 
 /**
@@ -48,7 +60,8 @@ class CarSpec(
     val aeroGripG: Float,
     /** Peak braking deceleration in g on dry asphalt. */
     val brakeG: Float,
-    val wheelRadius: Float = 0.345f,
+    val frontTyre: Tyre,
+    val rearTyre: Tyre,
     /** Maximum front wheel angle at standstill, radians. */
     val maxSteer: Float = 0.6f,
     val engine: Engine = Engine.V8,
@@ -58,7 +71,20 @@ class CarSpec(
     /** Power reaching the wheels after drivetrain losses, W. */
     val wheelPower = powerKw * 1000f * 0.88f
     val topSpeed = topSpeedKmh / 3.6f
+    val wheelRadius = rearTyre.radius
+    /** Combined width of the driven tires on one side, m. */
+    private val drivenWidth = if (awd) frontTyre.width + rearTyre.width else rearTyre.width * 2f
 
+    /**
+     * Tire grip on [surface] relative to the published asphalt figures: on soft ground a wider contact
+     * patch (and on an AWD car, four driven tires) bites better. Reference: a 300 mm tire.
+     */
+    fun tyreGrip(surface: Surface, width: Float) = 1f + surface.soft * (Math.pow((width / 0.3f).toDouble(), 0.35).toFloat() - 1f)
+
+    /** Rolling and bump resistance factor on [surface]: wide tires plough, big wheels ride over bumps. */
+    private fun tyreDrag(surface: Surface) = 1f + surface.soft * (
+        Math.pow(((frontTyre.width + rearTyre.width) / 0.6f).toDouble(), 0.5).toFloat() * (0.345f / wheelRadius) - 1f
+        )
     /** Drag coefficient times frontal area (m²), so that wheel power balances drag at top speed. */
     val dragArea: Float = run {
         val v = topSpeed
@@ -103,18 +129,31 @@ class CarSpec(
         return t
     }
 
-    /** Forward acceleration from engine and resistances at speed v (m/s), throttle 0..1. */
+    /**
+     * Forward acceleration from engine and resistances at speed v (m/s), throttle 0..1.
+     *
+     * The throttle asks for a share of what the car can put down on asphalt (power, limited by
+     * traction control). Where the ground grips less, asking for more than the tires can take spins
+     * them: sliding tires push less, so on grass a gentle throttle accelerates harder than a full one,
+     * and the more powerful the car, the sooner it spins.
+     */
     fun driveAccel(v: Float, throttle: Float, surface: Surface, tractionFactor: Float = traction): Float {
-        val powerLimited = throttle * surface.power * wheelPower / (massKg * maxOf(v, 3f))
-        val tractionLimited = throttle * tractionFactor * surface.grip * GRAVITY
-        return min(powerLimited, tractionLimited) - resistance(v, surface)
+        val power = wheelPower / (massKg * maxOf(v, 3f))
+        val demand = throttle * min(power, tractionFactor * GRAVITY)
+        val cap = min(power * surface.power, tractionFactor * surface.grip * tyreGrip(surface, drivenWidth / 2f) * GRAVITY)
+        val thrust = if (demand <= cap) demand else cap * (1f - surface.spinLoss * min(1f, (demand / cap - 1f) * 1.5f))
+        return thrust - resistance(v, surface)
     }
 
     /** Deceleration from air drag, rolling resistance and rough ground at speed v >= 0. */
     fun resistance(v: Float, surface: Surface) =
-        0.5f * AIR_DENSITY * dragArea * v * v / massKg + surface.rolling * GRAVITY + surface.rough * v
+        0.5f * AIR_DENSITY * dragArea * v * v / massKg + (surface.rolling * GRAVITY + surface.rough * v) * tyreDrag(surface)
 
-    fun lateralLimit(v: Float, surface: Surface) = (gripG + aeroGripG * (v / 60f) * (v / 60f)) * surface.grip * GRAVITY
+    fun lateralLimit(v: Float, surface: Surface) =
+        (gripG + aeroGripG * (v / 60f) * (v / 60f)) * surface.grip * tyreGrip(surface, frontTyre.width) * GRAVITY
+
+    /** Braking deceleration at full pedal on [surface]. */
+    fun brakeLimit(surface: Surface) = brakeG * surface.grip * tyreGrip(surface, (frontTyre.width + rearTyre.width) / 2f) * GRAVITY
 
     /** Front wheel angle at full steering input; reduced at speed so a touch wheel stays controllable. */
     fun steerAngle(v: Float) = maxSteer / (1f + abs(v) / 14f)
@@ -134,12 +173,12 @@ class CarSpec(
     }
 
     companion object {
-        val LAMBORGHINI = CarSpec("Lamborghini", "Huracán EVO", 1550f, 470f, 325f, 2.9f, true, 2.62f, 1.30f, 0.20f, 1.30f, engine = Engine.V10, redline = 8500f, gears = 7)
-        val PORSCHE = CarSpec("Porsche", "911 GT3 RS", 1450f, 386f, 296f, 3.2f, false, 2.46f, 1.38f, 0.40f, 1.38f, engine = Engine.FLAT6, redline = 9000f, gears = 7)
-        val BMW = CarSpec("BMW", "M4 Competition", 1775f, 390f, 290f, 3.5f, true, 2.86f, 1.12f, 0.05f, 1.20f, engine = Engine.INLINE6, redline = 7200f, gears = 8)
-        val MERCEDES = CarSpec("Mercedes-AMG", "ONE", 1695f, 782f, 352f, 2.9f, true, 2.72f, 1.40f, 0.40f, 1.40f, engine = Engine.V6, redline = 11000f, gears = 7)
-        val AUDI = CarSpec("Audi", "R8 V10 performance", 1595f, 456f, 331f, 3.1f, true, 2.65f, 1.25f, 0.15f, 1.28f, engine = Engine.V10, redline = 8700f, gears = 7)
-        val ASTON = CarSpec("Aston Martin", "Vantage", 1605f, 489f, 325f, 3.5f, false, 2.70f, 1.20f, 0.12f, 1.25f, engine = Engine.V8, redline = 7000f, gears = 8)
+        val LAMBORGHINI = CarSpec("Lamborghini", "Huracán EVO", 1550f, 470f, 325f, 2.9f, true, 2.62f, 1.30f, 0.20f, 1.30f, Tyre(245, 30, 20), Tyre(305, 30, 20), engine = Engine.V10, redline = 8500f, gears = 7)
+        val PORSCHE = CarSpec("Porsche", "911 GT3 RS", 1450f, 386f, 296f, 3.2f, false, 2.46f, 1.38f, 0.40f, 1.38f, Tyre(275, 35, 20), Tyre(335, 30, 21), engine = Engine.FLAT6, redline = 9000f, gears = 7)
+        val BMW = CarSpec("BMW", "M4 Competition", 1775f, 390f, 290f, 3.5f, true, 2.86f, 1.12f, 0.05f, 1.20f, Tyre(275, 35, 19), Tyre(285, 30, 20), engine = Engine.INLINE6, redline = 7200f, gears = 8)
+        val MERCEDES = CarSpec("Mercedes-AMG", "ONE", 1695f, 782f, 352f, 2.9f, true, 2.72f, 1.40f, 0.40f, 1.40f, Tyre(285, 35, 19), Tyre(335, 30, 20), engine = Engine.V6, redline = 11000f, gears = 7)
+        val AUDI = CarSpec("Audi", "R8 V10 performance", 1595f, 456f, 331f, 3.1f, true, 2.65f, 1.25f, 0.15f, 1.28f, Tyre(245, 30, 20), Tyre(305, 30, 20), engine = Engine.V10, redline = 8700f, gears = 7)
+        val ASTON = CarSpec("Aston Martin", "Vantage", 1605f, 489f, 325f, 3.5f, false, 2.70f, 1.20f, 0.12f, 1.25f, Tyre(275, 35, 21), Tyre(325, 30, 21), engine = Engine.V8, redline = 7000f, gears = 8)
 
         val ALL = listOf(LAMBORGHINI, PORSCHE, BMW, MERCEDES, AUDI, ASTON)
 
@@ -224,7 +263,7 @@ class CarPhysics(var x: Float = 0f, var z: Float = 0f, var yaw: Float = 0f, var 
         val th = clamp(throttle, 0f, 1f)
         val br = clamp(brake, 0f, 1f)
         val v = abs(speed)
-        val brakeDecel = spec.brakeG * surface.grip * GRAVITY
+        val brakeDecel = spec.brakeLimit(surface)
 
         if (speed >= 0f) {
             var a = spec.driveAccel(speed, th, surface)

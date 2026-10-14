@@ -44,6 +44,24 @@ class GameLogicTest {
     }
 
     @Test
+    fun easingTheThrottleOnGrassStopsWheelspin() {
+        for (spec in CarSpec.ALL) {
+            val full = speedAfter(3f, Surface.GRASS, spec, 1f)
+            val gentle = speedAfter(3f, Surface.GRASS, spec, 0.5f)
+            println("${spec.brand}: grass 3 s full ${full * 3.6f} km/h, half ${gentle * 3.6f} km/h, top ${speedAfter(60f, Surface.GRASS, spec) * 3.6f}")
+            assertTrue("${spec.brand} full=$full gentle=$gentle", gentle > full)
+        }
+    }
+
+    @Test
+    fun widerTyresGripBetterOnGrassOnly() {
+        val s = CarSpec.PORSCHE
+        assertEquals(1f, s.tyreGrip(Surface.STREET, 0.2f), 1e-6f)
+        assertTrue(s.tyreGrip(Surface.GRASS, 0.335f) > s.tyreGrip(Surface.GRASS, 0.245f))
+        assertEquals(0.734f, Tyre(335, 30, 21).radius * 2f, 0.005f)
+    }
+
+    @Test
     fun grassLimitsTopSpeed() {
         assertTrue(speedAfter(60f, Surface.GRASS) * 3.6f < 110f)
     }

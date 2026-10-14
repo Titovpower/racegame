@@ -29,7 +29,7 @@ class MainActivity : Activity() {
         surface.setRenderer(renderer)
         val root = FrameLayout(this)
         root.addView(surface)
-        root.addView(ControlOverlayView(this, controls, telemetry))
+        root.addView(ControlOverlayView(this, controls, telemetry, Settings(this)))
         setContentView(root)
     }
 

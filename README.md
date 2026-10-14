@@ -17,14 +17,14 @@ see `tools/preview`. The steering wheel and HUD in them are an approximation of 
 Before the race you choose your car with the arrows and press **START RACE**. Six models, styled
 after real cars (proportions from published dimensions, brand names only, no logos):
 
-| Car | Power | Weight | 0-100 km/h | Top speed | Drive |
-|---|---|---|---|---|---|
-| Lamborghini Huracán EVO | 639 hp | 1550 kg | 2.9 s | 325 km/h | AWD |
-| Porsche 911 GT3 RS | 525 hp | 1450 kg | 3.2 s | 296 km/h | RWD |
-| BMW M4 Competition | 530 hp | 1775 kg | 3.5 s | 290 km/h | AWD |
-| Mercedes-AMG ONE | 1063 hp | 1695 kg | 2.9 s | 352 km/h | AWD |
-| Audi R8 V10 performance | 620 hp | 1595 kg | 3.1 s | 331 km/h | AWD |
-| Aston Martin Vantage | 665 hp | 1605 kg | 3.5 s | 325 km/h | RWD |
+| Car | Power | Weight | 0-100 km/h | Top speed | Drive | Tires front / rear |
+|---|---|---|---|---|---|---|
+| Lamborghini Huracán EVO | 639 hp | 1550 kg | 2.9 s | 325 km/h | AWD | 245/30 R20 / 305/30 R20 |
+| Porsche 911 GT3 RS | 525 hp | 1450 kg | 3.2 s | 296 km/h | RWD | 275/35 R20 / 335/30 R21 |
+| BMW M4 Competition | 530 hp | 1775 kg | 3.5 s | 290 km/h | AWD | 275/35 R19 / 285/30 R20 |
+| Mercedes-AMG ONE | 1063 hp | 1695 kg | 2.9 s | 352 km/h | AWD | 285/35 R19 / 335/30 R20 |
+| Audi R8 V10 performance | 620 hp | 1595 kg | 3.1 s | 331 km/h | AWD | 245/30 R20 / 305/30 R20 |
+| Aston Martin Vantage | 665 hp | 1605 kg | 3.5 s | 325 km/h | RWD | 275/35 R21 / 325/30 R21 |
 
 The physics take these figures over directly. Engine power (minus drivetrain losses) is limited by
 tire traction at low speed; air drag is solved from the top speed and launch traction from the
@@ -50,9 +50,17 @@ A steering wheel sits at the bottom of the screen. Touch it and drag:
 - **down**: brake; keep holding it while stopped to reverse
 - **let go**: the wheel re-centers and the car coasts
 
-The ground matters. On **grass** the tires have under half the grip of asphalt and most
-engine power is lost to wheelspin, so the car accelerates, steers and brakes much more slowly,
-and top speed drops below ~110 km/h (`Surface.STREET` / `Surface.GRASS` in `CarPhysics.kt`).
+The **gear button** in the bottom-right corner opens sliders for the sensitivity of the steering
+wheel, the accelerator and the brakes (40-250%: higher means less finger travel for full lock,
+full throttle or full braking). The settings are saved on the phone.
+
+The ground matters. On **grass** the tires have under half the grip of asphalt, so the car
+accelerates, steers and brakes much more slowly. Tire size counts there: wider tires bite better
+but plough more, bigger wheels roll over the bumps more easily, and four driven wheels help.
+Floor the throttle on grass and the tires spin, which pushes the car less than gripping tires:
+easing off accelerates harder, and the more horsepower, the sooner the wheels spin. Top speed on
+grass is about 95-140 km/h depending on the car. On asphalt, traction control keeps the tires
+gripping (`Surface`, `Tyre` and `CarSpec.driveAccel` in `CarPhysics.kt`).
 On asphalt a car stops from 100 km/h in about 30 m.
 The HUD shows speed, the current ground type, position, lap and lap times.
 
