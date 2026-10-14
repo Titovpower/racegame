@@ -74,6 +74,7 @@ object CarModel {
     private val TRIM = Rgb.hex(0x16171A)
     private val CARBON = Rgb.hex(0x25272B)
     private val WELL = Rgb.hex(0x0E0E10)
+    private val BRONZE = Rgb.hex(0xC08A4E)
     private val GLASS = Rgb.hex(0x0C131C)
     private val CHROME = Rgb.hex(0xC9CED4)
     /** Clear headlight glass over a dark reflector: reads as glass, with the light signature in white. */
@@ -98,11 +99,13 @@ object CarModel {
     )
     val BMW = CarStyle(
         "m4", 4.79f, 0.945f, 1.50f, -1.36f, 0.30f, 0.45f,
-        listOf(2.39f to 0.66f, 2.3f to 0.76f, 1.8f to 0.86f, 0.6f to 0.93f, 0f to 0.94f, -1.0f to 0.96f, -1.6f to 1.0f, -2.25f to 1.0f, -2.39f to 0.88f),
-        windshieldZ = 0.6f, roofFrontZ = -0.15f, roofRearZ = -0.95f, rearGlassZ = -1.6f, roofY = 1.39f,
+        // From Andy's reference photo (a BMW coupe concept): tall nose carrying huge kidneys, sculpted
+        // hood, slit headlights, deep angular intakes and a long fastback roof.
+        listOf(2.39f to 0.76f, 2.3f to 0.83f, 1.8f to 0.88f, 0.6f to 0.93f, 0f to 0.94f, -1.0f to 0.96f, -1.6f to 0.99f, -2.25f to 0.99f, -2.39f to 0.86f),
+        windshieldZ = 0.6f, roofFrontZ = -0.1f, roofRearZ = -0.7f, rearGlassZ = -1.95f, roofY = 1.38f,
         grille = CarStyle.Grille.KIDNEY, headlights = CarStyle.Headlights.ANGULAR, wing = CarStyle.Wing.LIP,
         exhaust = CarStyle.Exhaust.QUAD, taillights = CarStyle.Taillights.L_SHAPE,
-        hoodDip = 0.0f, hipRise = 0.03f, frontWidth = 0.98f, cabinBase = 0.86f, cabinTop = 0.66f,
+        hoodDip = 0.03f, hipRise = 0.05f, frontWidth = 0.97f, cabinBase = 0.84f, cabinTop = 0.62f,
     )
     val MERCEDES = CarStyle(
         "amggt", 4.55f, 1.0f, 1.25f, -1.38f, 0.30f, 0.42f,
@@ -434,15 +437,28 @@ object CarModel {
                 }
             }
             CarStyle.Grille.KIDNEY -> {
-                // Two tall kidneys with chrome surrounds, and a wide lower intake.
-                for (side in floatArrayOf(-1f, 1f)) {
-                    val x = side * 0.17f
-                    b.gloss = 0.9f
-                    plate(b, listOf(x - 0.14f to 0.4f, x + 0.14f to 0.4f, x + 0.15f to 0.74f, x - 0.13f to 0.74f), zf - 0.12f, zf - 0.005f, CHROME)
-                    b.gloss = 0.3f
-                    plate(b, listOf(x - 0.12f to 0.42f, x + 0.12f to 0.42f, x + 0.13f to 0.72f, x - 0.11f to 0.72f), zf - 0.1f, zf + 0.005f, TRIM)
+                // Two huge upright kidneys with bronze surrounds and vertical slats, nearly meeting in the middle.
+                fun kidney(cx: Float, w: Float, y0: Float, y1: Float): List<Pair<Float, Float>> {
+                    val r = w * 0.45f
+                    return listOf(
+                        cx - w + r to y0, cx + w - r to y0, cx + w to y0 + r, cx + w to y1 - r,
+                        cx + w - r to y1, cx - w + r to y1, cx - w to y1 - r, cx - w to y0 + r,
+                    )
                 }
-                plate(b, listOf(-0.6f to 0.29f, 0.6f to 0.29f, 0.55f to 0.37f, -0.55f to 0.37f), zf - 0.2f, zf - 0.03f, TRIM)
+                for (side in floatArrayOf(-1f, 1f)) {
+                    val x = side * 0.19f
+                    b.gloss = 0.9f
+                    plate(b, kidney(x, 0.17f, 0.3f, 0.8f), zf - 0.12f, zf + 0.004f, BRONZE)
+                    b.gloss = 0.3f
+                    plate(b, kidney(x, 0.15f, 0.32f, 0.78f), zf - 0.1f, zf + 0.012f, TRIM)
+                    b.gloss = 0.85f
+                    for (k in -3..3) {
+                        b.orientedBox(V3(x + k * 0.04f, 0.55f, zf + 0.012f), V3(0.006f, 0f, 0f), V3(0f, 0.2f, 0f), V3(0f, 0f, 0.008f), CHROME.scale(0.35f))
+                    }
+                    // Deep angular intakes below the headlights.
+                    b.gloss = 0.3f
+                    plate(b, listOf(side * 0.42f to 0.27f, side * 0.86f to 0.27f, side * 0.88f to 0.36f, side * 0.6f to 0.5f, side * 0.42f to 0.42f), zf - 0.3f, zf - 0.06f, TRIM)
+                }
             }
             CarStyle.Grille.PANAMERICANA -> {
                 plate(b, listOf(-0.38f to 0.3f, 0.38f to 0.3f, 0.32f to 0.53f, -0.32f to 0.53f), zf - 0.14f, zf - 0.01f, TRIM)
@@ -507,8 +523,9 @@ object CarModel {
                     val z = st.front - 0.12f
                     val y = st.topY(z) - 0.08f
                     b.gloss = 1f
-                    b.orientedBox(V3(side * (hw - 0.3f), y, z), V3(0.2f, 0f, -side * 0.03f), V3(0f, 0.05f, -0.01f), V3(0f, 0f, 0.06f), LENS)
-                    b.orientedBox(V3(side * (hw - 0.3f), y - 0.035f, z + 0.05f), V3(0.18f, 0f, 0f), V3(0f, 0.008f, 0f), V3(0f, 0f, 0.01f), DRL)
+                    // Thin slit lamps above the kidneys' outer edges, angled up towards the fenders.
+                    b.orientedBox(V3(side * (hw - 0.33f), y + 0.04f, z - 0.03f), V3(0.2f, side * 0.025f, -side * 0.05f), V3(0f, 0.02f, -0.004f), V3(0f, 0f, 0.05f), LENS)
+                    b.orientedBox(V3(side * (hw - 0.33f), y + 0.045f, z + 0.02f), V3(0.19f, side * 0.025f, -side * 0.05f), V3(0f, 0.006f, 0f), V3(0f, 0f, 0.01f), DRL)
                 }
                 CarStyle.Headlights.SWEPT -> {
                     // Slim lamps set into the fender tops, sweeping up and back from the grille's corners.
@@ -623,9 +640,9 @@ object CarModel {
                 b.orientedBox(V3(cx, y - 0.03f, z), V3(0.16f, side * 0.03f, 0f), V3(0f, 0.015f, 0f), V3(0f, 0f, 0.02f), red)
             }
             CarStyle.Taillights.L_SHAPE -> for (side in floatArrayOf(-1f, 1f)) {
-                val cx = side * (hw - 0.3f)
-                b.orientedBox(V3(cx, y, z), V3(0.2f, 0f, 0f), V3(0f, 0.035f, 0f), V3(0f, 0f, 0.02f), red)
-                b.orientedBox(V3(cx + side * 0.17f, y - 0.06f, z), V3(0.03f, 0f, 0f), V3(0f, 0.05f, 0f), V3(0f, 0f, 0.02f), red)
+                val cx = side * (hw - 0.38f)
+                b.orientedBox(V3(cx, y, z), V3(0.17f, 0f, 0f), V3(0f, 0.03f, 0f), V3(0f, 0f, 0.02f), red)
+                b.orientedBox(V3(cx + side * 0.14f, y - 0.055f, z), V3(0.03f, 0f, 0f), V3(0f, 0.045f, 0f), V3(0f, 0f, 0.02f), red)
             }
             CarStyle.Taillights.BLADE -> {
                 // A thin blade across the ducktail, widening and dipping into the lamps at the corners.
