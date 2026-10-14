@@ -33,52 +33,38 @@ fun main(args: Array<String>) {
     }
     val scene = Scene(game)
     scene.updateCamera(0f, aspect)
-    for ((id, data) in scene.meshes) {
-        val bb = ByteBuffer.allocate(data.size * 4).order(ByteOrder.LITTLE_ENDIAN)
-        bb.asFloatBuffer().put(data)
-        File(out, "$id.bin").writeBytes(bb.array())
+    for ((key, glb) in scene.assets) File(out, "$key.glb").writeBytes(glb)
+    // Sky cubemap mip chain (RGB float32, faces +X -X +Y -Y +Z -Z per level) and irradiance SH.
+    val sky = File(out, "sky.bin")
+    if (!sky.exists()) {
+        val levels = SkyEnvironment.cubemap(Scene.SKY_SIZE)
+        val bb = ByteBuffer.allocate(levels.sumOf { it.size } * 4).order(ByteOrder.LITTLE_ENDIAN)
+        for (l in levels) bb.asFloatBuffer().also { it.put(l) }.let { bb.position(bb.position() + l.size * 4) }
+        sky.writeBytes(bb.array())
     }
-    val sb = StringBuilder()
     fun arr(a: FloatArray) = a.joinToString(",", "[", "]")
-    fun col(c: Rgb) = "[${c.r},${c.g},${c.b}]"
-    var vp = FloatArray(16)
-    var cam = floatArrayOf(0f, 0f, 0f)
-    val draws = ArrayList<String>()
-    val casters = ArrayList<String>()
-    var lightVp = FloatArray(16)
-    scene.render(object : DrawSink {
-        override fun beginShadows(lightViewProj: FloatArray) { lightVp = lightViewProj.copyOf() }
-        override fun drawShadowCaster(mesh: String, model: FloatArray) {
-            casters.add("""{"mesh":"$mesh","model":${arr(model)}}""")
-        }
-        override fun beginFrame(viewProj: FloatArray, camX: Float, camY: Float, camZ: Float, lightViewProj: FloatArray) {
-            vp = viewProj.copyOf(); cam = floatArrayOf(camX, camY, camZ)
-        }
-        override fun draw(mesh: String, model: FloatArray, p: DrawParams) {
-            draws.add("""{"mesh":"$mesh","model":${arr(model)},"mode":${p.mode},"alpha":${p.alpha},"tint":[${p.tintR},${p.tintG},${p.tintB}],"detail":${p.detail},"detailScale":${p.detailScale},"blend":${p.blend},"depthTest":${p.depthTest},"depthWrite":${p.depthWrite},"polygonOffset":${p.polygonOffset}}""")
-        }
-    })
+    var cam = floatArrayOf(scene.camX, scene.camY, scene.camZ)
+    var target = floatArrayOf(scene.targetX, scene.targetY, scene.targetZ)
+    var projection = scene.projection.copyOf()
     System.getenv("PREVIEW_ORBIT")?.toFloat()?.let { deg ->
         // Showroom shot: orbit the car instead of the chase camera.
         val car = game.car
         val a = car.yaw + Math.toRadians(deg.toDouble()).toFloat()
         val dist = (System.getenv("PREVIEW_DIST") ?: "6.5").toFloat()
-        val cx = car.x + sin(a) * dist; val cz = car.z + cos(a) * dist; val cy = 1.7f
-        val proj = FloatArray(16); val view = FloatArray(16)
-        android.opengl.Matrix.perspectiveM(proj, 0, 45f, aspect, 0.3f, 1500f)
-        android.opengl.Matrix.setLookAtM(view, 0, cx, cy, cz, car.x, 0.55f, car.z, 0f, 1f, 0f)
-        android.opengl.Matrix.multiplyMM(vp, 0, proj, 0, view, 0)
-        cam = floatArrayOf(cx, cy, cz)
-        // Sky follows the camera.
-        val sky = draws[0]
-        draws[0] = sky.replace(Regex("\"model\":\\[[^\\]]*\\]"), "\"model\":[1,0,0,0,0,1,0,0,0,0,1,0,$cx,$cy,$cz,1]")
+        cam = floatArrayOf(car.x + sin(a) * dist, 1.7f, car.z + cos(a) * dist)
+        target = floatArrayOf(car.x, 0.55f, car.z)
+        android.opengl.Matrix.perspectiveM(projection, 0, 45f, aspect, Scene.NEAR, Scene.FAR)
     }
-    sb.append("""{"viewProj":${arr(vp)},"cam":${arr(cam)},"sun":[${Scene.SUN.x},${Scene.SUN.y},${Scene.SUN.z}],"horizon":${col(Scene.SKY_HORIZON)},"zenith":${col(Scene.SKY_ZENITH)},"bounce":${col(Scene.GROUND_BOUNCE)},"fog":[${Scene.FOG_NEAR},${Scene.FOG_FAR}],""")
-    sb.append(""""speed":${abs(game.car.speed) * 3.6f},"surface":"${game.surface.name}","position":${game.position},"lap":${minOf(game.player.lapsDone + 1, game.totalLaps)},"totalLaps":${game.totalLaps},"countdown":${game.countdown},"picking":${game.phase == GameState.Phase.PICKING},"car":"${game.playerSpec.brand}|${game.playerSpec.model}|${game.playerSpec.powerHp}|${game.playerSpec.zeroTo100}|${game.playerSpec.topSpeedKmh.toInt()}","win":${System.getenv("PREVIEW_WIN") != null},"winPos":${scene.playerScreenPoint(2.3f)?.let { "[${it.first},${it.second}]" } ?: "null"},"standings":${game.standings.joinToString(",", "[", "]") { "{\"name\":\"${it.name}\",\"car\":\"${it.spec.brand}\",\"color\":${it.color},\"player\":${it.isPlayer}}" }},"lightViewProj":${arr(lightVp)},"shadowSize":${Scene.SHADOW_MAP_SIZE},"casters":[${casters.joinToString(",")}],"draws":[${draws.joinToString(",")}]}""")
+    val cars = scene.cars().joinToString(",", "[", "]") { """{"asset":"${it.asset}","model":${arr(it.model)},"braking":${it.braking}}""" }
+    val wheels = scene.wheels().joinToString(",", "[", "]") { arr(it) }
+    val sb = StringBuilder()
+    sb.append("""{"cam":${arr(cam)},"target":${arr(target)},"projection":${arr(projection)},"near":${Scene.NEAR},"far":${Scene.FAR},""")
+    sb.append(""""sun":[${Scene.SUN.x},${Scene.SUN.y},${Scene.SUN.z}],"sunLux":${Scene.SUN_LUX},"skyIntensity":${Scene.SKY_INTENSITY},""")
+    sb.append(""""exposure":[${Scene.APERTURE},${Scene.SHUTTER},${Scene.ISO}],"skySize":${Scene.SKY_SIZE},"sh":${arr(SkyEnvironment.irradianceSh())},""")
+    val fog = SkyEnvironment.fogColor
+    sb.append(""""fogColor":[${fog.r},${fog.g},${fog.b}],"cars":$cars,"wheels":$wheels,""")
+    sb.append(""""speed":${abs(game.car.speed) * 3.6f},"surface":"${game.surface.name}","position":${game.position},"lap":${minOf(game.player.lapsDone + 1, game.totalLaps)},"totalLaps":${game.totalLaps},"countdown":${game.countdown},"picking":${game.phase == GameState.Phase.PICKING},"car":"${game.playerSpec.brand}|${game.playerSpec.model}|${game.playerSpec.powerHp}|${game.playerSpec.zeroTo100}|${game.playerSpec.topSpeedKmh.toInt()}","win":${System.getenv("PREVIEW_WIN") != null},"winPos":${scene.playerScreenPoint(2.3f)?.let { "[${it.first},${it.second}]" } ?: "null"},"rpm":${game.gearbox.rpm},"redline":${game.playerSpec.redline},"gear":${game.gearbox.gear + 1},""")
+    sb.append(""""standings":${game.standings.joinToString(",", "[", "]") { "{\"name\":\"${it.name}\",\"car\":\"${it.spec.brand}\",\"color\":${it.color},\"player\":${it.isPlayer}}" }}}""")
     File(out, "frame.json").writeText(sb.toString())
-    File(out, "shader.vert").writeText(ShaderSource.VERTEX)
-    File(out, "shader.frag").writeText(ShaderSource.FRAGMENT)
-    File(out, "shadow.vert").writeText(ShadowShaderSource.VERTEX)
-    File(out, "shadow.frag").writeText(ShadowShaderSource.FRAGMENT)
-    println("exported ${draws.size} draws, speed=${abs(game.car.speed) * 3.6f} surface=${game.surface.name}")
+    println("exported ${scene.assets.size} assets, speed=${abs(game.car.speed) * 3.6f} surface=${game.surface.name}")
 }

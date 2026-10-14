@@ -141,10 +141,23 @@ object CarModel {
         arch(st.frontAxle)
         pts.add(P(st.front - 0.1f, st.noseLowY - 0.04f, 0.3f))
         pts.add(P(st.front - 0.01f, st.noseLowY + 0.05f, 0.5f))
-        for ((k, p) in st.top.withIndex()) {
-            val end = k == 0 || k == st.top.size - 1
-            pts.add(P(p.first, p.second, if (end) 0.7f else 1f))
+        // The top silhouette as a smooth Catmull-Rom curve through the style's control points.
+        val top = st.top
+        for (k in 0 until top.size - 1) {
+            val p0 = top[maxOf(k - 1, 0)]
+            val p1 = top[k]
+            val p2 = top[k + 1]
+            val p3 = top[minOf(k + 2, top.size - 1)]
+            for (step in 0 until 5) {
+                val t = step / 5f
+                val t2 = t * t
+                val t3 = t2 * t
+                fun cr(a: Float, b: Float, c: Float, d: Float) =
+                    0.5f * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3)
+                pts.add(P(cr(p0.first, p1.first, p2.first, p3.first), cr(p0.second, p1.second, p2.second, p3.second), if (k == 0 && step == 0) 0.7f else 1f))
+            }
         }
+        pts.add(P(top.last().first, top.last().second, 0.7f))
         pts.add(P(st.rear, st.tailLowY, 0.5f))
         return pts
     }
@@ -166,7 +179,8 @@ object CarModel {
         val hw = st.halfWidth
 
         // Lofted across the width; upper points are pulled in near the sides for round shoulders.
-        val us = floatArrayOf(-1f, -0.97f, -0.9f, -0.75f, -0.45f, 0f, 0.45f, 0.75f, 0.9f, 0.97f, 1f)
+        // Across the width, denser towards the sides where the body curves most.
+        val us = (0..24).map { k -> kotlin.math.sin((k / 24f * 2f - 1f) * PI.toFloat() / 2f) }
         val rings = us.map { u ->
             val s = sqrt(maxOf(0f, 1f - u * u)).coerceAtLeast(0.3f)
             val shrink = 1f - s
@@ -235,8 +249,8 @@ object CarModel {
     /** Glass greenhouse with painted roof and pillars, lofted along z. */
     private fun cabin(b: MeshBuilder, st: CarStyle, paint: Rgb) {
         val hw = st.halfWidth
-        val zs = (0..9).map { k -> st.rearGlassZ + (st.windshieldZ - st.rearGlassZ) * k / 9f }
-        val segs = 20
+        val zs = (0..20).map { k -> st.rearGlassZ + (st.windshieldZ - st.rearGlassZ) * k / 20f }
+        val segs = 32
         fun roofAt(z: Float): Float {
             val base = st.topY(z)
             return when {
@@ -514,13 +528,6 @@ object CarModel {
         }
         b.blob(V3(0.135f, 0f, 0f), 0.02f, 0.05f, 0.05f, 4, 8, CHROME)
         b.gloss = 0f
-        return b.toArray()
-    }
-
-    /** Soft contact shadow under the car (unlit, alpha in the gloss channel). */
-    fun shadow(): FloatArray {
-        val b = MeshBuilder()
-        b.softDisc(0f, 0.03f, 0f, 1.1f, 2.4f, 24, 0.38f)
         return b.toArray()
     }
 

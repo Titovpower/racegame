@@ -23,13 +23,6 @@ object SceneMeshes {
     private val LEAF_AUTUMN = Rgb.hex(0x8E9A2A)
     private val BUSH = Rgb.hex(0x3F7A2A)
 
-    /** Unit-ish sphere around the camera; colored by the shader's sky mode. */
-    fun sky(): FloatArray {
-        val b = MeshBuilder()
-        b.blob(V3(0f, 0f, 0f), 1000f, 1000f, 1000f, 12, 24, Rgb(1f, 1f, 1f))
-        return b.toArray()
-    }
-
     fun ground(world: World): FloatArray {
         val b = MeshBuilder(1 shl 21)
         val ext = world.groundExtent
@@ -116,30 +109,6 @@ object SceneMeshes {
         return b.toArray()
     }
 
-    /** Soft shadows under trees, bushes and the grandstand (unlit, alpha in the gloss channel). */
-    fun shadows(world: World): FloatArray {
-        val b = MeshBuilder(1 shl 18)
-        // Shadows lean away from the sun a little.
-        val sx = -Scene.SUN.x * 0.8f
-        val sz = -Scene.SUN.z * 0.8f
-        for (t in world.trees) {
-            val r = (if (t.pine) 2.8f else 3.4f) * t.scale
-            b.softDisc(t.x + sx * r, t.y + 0.07f, t.z + sz * r, r, r, 8, 0.42f)
-        }
-        for (bush in world.bushes) {
-            b.softDisc(bush.x + sx, 0.07f, bush.z + sz, bush.size * 1.4f, bush.size * 1.4f, 6, 0.35f)
-        }
-        val (gx, gz) = world.grandstandCenter()
-        val t = world.track.tangent(world.grandstandIndex)
-        val left = V3(t.z, 0f, -t.x)
-        val c = V3(gx, 0f, gz) + left * (world.grandstandDepth * 0.5f + 2f)
-        for (k in -3..3) {
-            val p = c + t * (k * world.grandstandLength / 7f)
-            b.softDisc(p.x, 0.07f, p.z, 6f, 6f, 12, 0.3f)
-        }
-        return b.toArray()
-    }
-
     /** Start gantry and grandstand. */
     fun props(world: World): FloatArray {
         val b = MeshBuilder(1 shl 16)
@@ -222,34 +191,41 @@ object SceneMeshes {
             val rot = (tr.x * 13.1f + tr.z * 7.7f) % 6.28f
             val tint = 0.85f + Noise.value(tr.x * 0.3f, tr.z * 0.3f) * 0.3f
             if (tr.pine) {
-                b.prism(tr.x, tr.y - 0.5f, tr.z, 0.32f * s, 2.6f * s, 6, TRUNK, topRadius = 0.18f * s)
+                b.prism(tr.x, tr.y - 0.5f, tr.z, 0.32f * s, 2.6f * s, 8, TRUNK, topRadius = 0.18f * s)
+                // Five drooping tiers, narrowing towards the top.
                 val c = PINE.scale(tint)
-                b.cone(tr.x, tr.y + 1.3f * s, tr.z, 2.7f * s, 3.8f * s, 9, c, rot)
-                b.cone(tr.x, tr.y + 3.0f * s, tr.z, 2.15f * s, 3.4f * s, 9, c.scale(1.06f), rot + 0.35f)
-                b.cone(tr.x, tr.y + 4.6f * s, tr.z, 1.45f * s, 3.0f * s, 8, c.scale(1.12f), rot + 0.7f)
+                for (k in 0 until 5) {
+                    val f = k / 4f
+                    b.cone(tr.x, tr.y + (1.1f + k * 1.25f) * s, tr.z, (2.8f - f * 1.9f) * s, (2.9f - f * 0.6f) * s, 10, c.scale(1f + f * 0.14f), rot + k * 0.4f)
+                }
             } else {
-                b.prism(tr.x, tr.y - 0.5f, tr.z, 0.38f * s, 3.8f * s, 6, TRUNK, topRadius = 0.22f * s)
+                b.prism(tr.x, tr.y - 0.5f, tr.z, 0.38f * s, 3.8f * s, 8, TRUNK, topRadius = 0.22f * s)
                 val autumn = Noise.value(tr.x * 0.05f, tr.z * 0.05f)
                 val leaf = LEAF.mix(LEAF_AUTUMN, clamp(autumn - 0.55f, 0f, 1f) * 2f).scale(tint)
                 val cy = tr.y + 4.4f * s
                 val seed = (tr.x * 3 + tr.z).toInt()
-                b.blob(V3(tr.x, cy, tr.z), 2.4f * s, 2.0f * s, 2.4f * s, 4, 8, leaf, seed)
-                b.blob(
-                    V3(tr.x + cos(rot) * 1.1f * s, cy + 1.3f * s, tr.z + sin(rot) * 1.1f * s),
-                    1.7f * s, 1.5f * s, 1.7f * s, 4, 7, leaf.scale(1.08f), seed + 5,
-                )
+                // A crown of overlapping clumps.
+                b.blob(V3(tr.x, cy, tr.z), 2.3f * s, 1.9f * s, 2.3f * s, 5, 10, leaf, seed)
+                for (k in 0 until 3) {
+                    val a = rot + k * 2.1f
+                    b.blob(
+                        V3(tr.x + cos(a) * 1.4f * s, cy + (0.5f + 0.4f * (k % 2)) * s, tr.z + sin(a) * 1.4f * s),
+                        1.45f * s, 1.25f * s, 1.45f * s, 4, 8, leaf.scale(0.95f + 0.05f * k), seed + k * 7,
+                    )
+                }
+                b.blob(V3(tr.x, cy + 1.6f * s, tr.z), 1.5f * s, 1.2f * s, 1.5f * s, 4, 8, leaf.scale(1.1f), seed + 3)
             }
         }
         for (bush in world.bushes) {
             val tint = 0.85f + Noise.value(bush.x * 0.4f, bush.z * 0.4f) * 0.3f
             b.blob(
                 V3(bush.x, bush.size * 0.45f, bush.z), bush.size * 1.1f, bush.size * 0.8f, bush.size,
-                3, 7, BUSH.scale(tint), (bush.x + bush.z).toInt(),
+                4, 8, BUSH.scale(tint), (bush.x + bush.z).toInt(),
             )
         }
         for (r in world.rocks) {
             val s = r.size
-            b.blob(V3(r.x, r.y + s * 0.2f, r.z), s * 1.2f, s * 0.75f, s, 3, 6, ROCK.scale(0.8f + Noise.value(r.x, r.z) * 0.4f), r.x.toInt())
+            b.blob(V3(r.x, r.y + s * 0.2f, r.z), s * 1.2f, s * 0.75f, s, 4, 8, ROCK.scale(0.8f + Noise.value(r.x, r.z) * 0.4f), r.x.toInt())
         }
         return b.toArray()
     }

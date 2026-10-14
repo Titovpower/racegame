@@ -8,7 +8,11 @@ val app = file("../../app/src")
 val androidAll = "org.robolectric:android-all:15-robolectric-13954326"
 
 sourceSets {
-    main { kotlin.srcDir(app.resolve("main/java")) }
+    main {
+        kotlin.srcDir(app.resolve("main/java"))
+        // Android-only: the Filament renderer and the activity need the real Android SDK.
+        kotlin.exclude("**/FilamentRenderer.kt", "**/MainActivity.kt")
+    }
     test { kotlin.srcDir(app.resolve("test/java")) }
 }
 val preview by sourceSets.creating {

@@ -3,6 +3,9 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// Keep in step with tools/preview (filament.js from npm), so previews match the app.
+val filamentVersion = "1.53.4"
+
 android {
     namespace = "com.titovpower.racegame"
     compileSdk = 35
@@ -14,6 +17,10 @@ android {
         // CI build number, so each new APK installs as an update over the previous one.
         versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
         versionName = "0.$versionCode"
+        ndk {
+            // Filament ships native code; phones are ARM.
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     signingConfigs {
@@ -46,5 +53,8 @@ kotlin {
 }
 
 dependencies {
+    // Filament: physically based rendering engine, and its glTF loader.
+    implementation("com.google.android.filament:filament-android:$filamentVersion")
+    implementation("com.google.android.filament:gltfio-android:$filamentVersion")
     testImplementation("junit:junit:4.13.2")
 }
