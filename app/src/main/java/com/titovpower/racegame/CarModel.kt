@@ -48,7 +48,16 @@ class CarStyle(
     val wingRise: Float = 0f,
     /** Wing position: distance of its center from the tail. */
     val wingZ: Float = 0.32f,
+    /** Tire radii from the real tire sizes; the arches hug them. */
+    val frontWheelR: Float = 0.345f,
+    val rearWheelR: Float = 0.345f,
+    /** Where the side windows end (z); behind it the rear quarter is painted. Default: just behind the roof. */
+    val sideGlassRearZ: Float = roofRearZ - 0.15f,
+    /** Where the rear window ends (z); behind it (an engine lid under a fastback) is painted. */
+    val rearWindowZ: Float = rearGlassZ,
 ) {
+    fun wheelR(axle: Float) = if (axle == frontAxle) frontWheelR else rearWheelR
+    fun archR(axle: Float) = wheelR(axle) + 0.04f
     enum class Grille { LAMBO, PORSCHE, KIDNEY, PANAMERICANA, SINGLEFRAME, ASTON, ONE }
     enum class Headlights { Y_SHAPE, ROUND, ANGULAR, SLIM, SWEPT }
     enum class Wing { LIP, SWAN_NECK, FIXED, NONE }
@@ -72,8 +81,10 @@ class CarStyle(
 }
 
 object CarModel {
-    private const val ARCH_RADIUS = 0.41f
-    private const val WHEEL_RADIUS = 0.345f
+    /** Typical arch radius, for placing details around the arches. */
+    private const val ARCH_RADIUS = 0.39f
+    /** Radius of the wheel mesh; each car scales it to its tire size. */
+    const val WHEEL_RADIUS = 0.345f
 
     private val TRIM = Rgb.hex(0x16171A)
     private val CARBON = Rgb.hex(0x25272B)
@@ -81,6 +92,7 @@ object CarModel {
     private val BRONZE = Rgb.hex(0xC08A4E)
     private val GLASS = Rgb.hex(0x0C131C)
     private val CHROME = Rgb.hex(0xC9CED4)
+    private val ALLOY = Rgb.hex(0xA9AEB5)
     /** Clear headlight glass over a dark reflector: reads as glass, with the light signature in white. */
     private val LENS = Rgb(0.3f, 0.32f, 0.36f)
     private val DRL = Rgb(1f, 1f, 1f)
@@ -89,24 +101,27 @@ object CarModel {
         // From Andy's reference photo (Huracán Super Trofeo EVO2 race car): wedge nose with huge intakes and
         // a wide splitter, hood vents, a roof scoop and a big swan-neck wing.
         "lambo", 4.52f, 0.965f, 1.36f, -1.26f, 0.32f, 0.42f,
-        listOf(2.26f to 0.40f, 2.1f to 0.55f, 1.6f to 0.66f, 0.9f to 0.79f, 0.2f to 0.82f, -0.7f to 0.86f, -1.0f to 0.98f, -1.8f to 1.0f, -2.15f to 0.98f, -2.26f to 0.9f),
-        windshieldZ = 0.9f, roofFrontZ = -0.05f, roofRearZ = -0.7f, rearGlassZ = -1.05f, roofY = 1.16f,
+        listOf(2.26f to 0.36f, 2.05f to 0.56f, 1.6f to 0.69f, 1.05f to 0.8f, 0.3f to 0.84f, -0.6f to 0.88f, -1.3f to 0.99f, -1.9f to 0.99f, -2.15f to 0.97f, -2.26f to 0.88f),
+        windshieldZ = 1.05f, roofFrontZ = 0.05f, roofRearZ = -0.55f, rearGlassZ = -1.3f, roofY = 1.17f,
         grille = CarStyle.Grille.LAMBO, headlights = CarStyle.Headlights.Y_SHAPE, wing = CarStyle.Wing.SWAN_NECK,
         exhaust = CarStyle.Exhaust.CENTER_HIGH, taillights = CarStyle.Taillights.Y_SHAPE, sideIntake = true,
-        hoodDip = 0.02f, hipRise = 0.04f, frontWidth = 0.98f, cabinBase = 0.78f, cabinTop = 0.52f,
+        hoodDip = 0.02f, hipRise = 0.04f, frontWidth = 0.98f, cabinBase = 0.85f, cabinTop = 0.59f,
         // Super Trofeo EVO2 (Andy's reference photo): a big wing on swan necks, overhanging the tail.
         wingRise = 0.44f, wingZ = 0.22f,
+        frontWheelR = CarSpec.LAMBORGHINI.frontTyre.radius, rearWheelR = CarSpec.LAMBORGHINI.rearTyre.radius,
     )
     val PORSCHE = CarStyle(
         // From Andy's reference photos (911 GT3 RS): tall fenders over a low hood with two big vents,
         // a wide black lower intake, a huge swan-neck wing and intakes behind the doors.
         "911", 4.57f, 0.925f, 1.30f, -1.16f, 0.32f, 0.40f,
-        listOf(2.28f to 0.52f, 2.1f to 0.62f, 1.5f to 0.72f, 0.75f to 0.85f, 0f to 0.87f, -0.9f to 0.9f, -1.8f to 0.93f, -2.2f to 0.92f, -2.28f to 0.8f),
-        windshieldZ = 0.75f, roofFrontZ = 0.15f, roofRearZ = -0.55f, rearGlassZ = -1.85f, roofY = 1.28f,
+        listOf(2.28f to 0.54f, 2.1f to 0.65f, 1.6f to 0.72f, 0.8f to 0.86f, 0f to 0.89f, -0.9f to 0.92f, -1.9f to 0.95f, -2.2f to 0.93f, -2.28f to 0.82f),
+        windshieldZ = 0.78f, roofFrontZ = 0.2f, roofRearZ = -0.25f, rearGlassZ = -1.95f, roofY = 1.3f,
         grille = CarStyle.Grille.PORSCHE, headlights = CarStyle.Headlights.ROUND, wing = CarStyle.Wing.SWAN_NECK,
         exhaust = CarStyle.Exhaust.CENTER_PAIR, taillights = CarStyle.Taillights.FULL_BAR,
-        hoodDip = 0.1f, hipRise = 0.07f, frontWidth = 0.93f, cabinBase = 0.8f, cabinTop = 0.6f,
+        hoodDip = 0.13f, hipRise = 0.08f, frontWidth = 0.93f, cabinBase = 0.88f, cabinTop = 0.66f,
         wingRise = 0.56f, wingZ = 0.42f,
+        frontWheelR = CarSpec.PORSCHE.frontTyre.radius, rearWheelR = CarSpec.PORSCHE.rearTyre.radius,
+        sideGlassRearZ = -0.75f, rearWindowZ = -1.1f,
     )
     val BMW = CarStyle(
         "m4", 4.79f, 0.945f, 1.50f, -1.36f, 0.30f, 0.45f,
@@ -116,18 +131,21 @@ object CarModel {
         windshieldZ = 0.6f, roofFrontZ = -0.1f, roofRearZ = -0.7f, rearGlassZ = -1.95f, roofY = 1.38f,
         grille = CarStyle.Grille.KIDNEY, headlights = CarStyle.Headlights.ANGULAR, wing = CarStyle.Wing.LIP,
         exhaust = CarStyle.Exhaust.QUAD, taillights = CarStyle.Taillights.L_SHAPE,
-        hoodDip = 0.03f, hipRise = 0.05f, frontWidth = 0.97f, cabinBase = 0.84f, cabinTop = 0.62f,
+        hoodDip = 0.03f, hipRise = 0.05f, frontWidth = 0.97f, cabinBase = 0.90f, cabinTop = 0.69f,
+        frontWheelR = CarSpec.BMW.frontTyre.radius, rearWheelR = CarSpec.BMW.rearTyre.radius,
+        sideGlassRearZ = -1.15f,
     )
     val MERCEDES = CarStyle(
         "amggt", 4.76f, 1.0f, 1.30f, -1.42f, 0.26f, 0.4f,
         // From Andy's reference photos (AMG ONE hypercar): low nose with big dark openings, cab-forward
         // teardrop cabin with a roof snorkel, a long engine cover with a fin, and a big carbon wing.
-        listOf(2.38f to 0.44f, 2.25f to 0.57f, 1.9f to 0.68f, 1.3f to 0.77f, 0.95f to 0.82f, 0f to 0.92f, -0.95f to 1.0f, -1.6f to 0.98f, -2.15f to 0.95f, -2.3f to 0.92f, -2.38f to 0.8f),
-        windshieldZ = 0.95f, roofFrontZ = 0.15f, roofRearZ = -0.45f, rearGlassZ = -0.95f, roofY = 1.25f,
+        listOf(2.38f to 0.44f, 2.22f to 0.58f, 1.8f to 0.7f, 1.3f to 0.78f, 1.0f to 0.82f, 0.3f to 0.85f, -0.45f to 0.89f, -1.1f to 0.94f, -1.6f to 0.96f, -2.1f to 0.93f, -2.3f to 0.89f, -2.38f to 0.78f),
+        windshieldZ = 1.0f, roofFrontZ = 0.2f, roofRearZ = -0.4f, rearGlassZ = -1.1f, roofY = 1.26f,
         grille = CarStyle.Grille.ONE, headlights = CarStyle.Headlights.SWEPT, wing = CarStyle.Wing.FIXED,
         exhaust = CarStyle.Exhaust.CENTER_PAIR, taillights = CarStyle.Taillights.SLIM_PAIR, sideIntake = true,
-        hoodDip = 0.09f, hipRise = 0.08f, frontWidth = 0.94f, cabinBase = 0.68f, cabinTop = 0.46f,
+        hoodDip = 0.09f, hipRise = 0.08f, frontWidth = 0.94f, cabinBase = 0.75f, cabinTop = 0.53f,
         wingRise = 0.2f, wingZ = 0.26f,
+        frontWheelR = CarSpec.MERCEDES.frontTyre.radius, rearWheelR = CarSpec.MERCEDES.rearTyre.radius,
     )
     val AUDI = CarStyle(
         "r8", 4.43f, 0.97f, 1.34f, -1.31f, 0.32f, 0.42f,
@@ -137,7 +155,8 @@ object CarModel {
         windshieldZ = 0.85f, roofFrontZ = 0f, roofRearZ = -0.65f, rearGlassZ = -1.0f, roofY = 1.24f,
         grille = CarStyle.Grille.SINGLEFRAME, headlights = CarStyle.Headlights.SWEPT, wing = CarStyle.Wing.SWAN_NECK,
         exhaust = CarStyle.Exhaust.OVAL_PAIR, taillights = CarStyle.Taillights.SLIM_PAIR, sideBlade = true,
-        hoodDip = 0.04f, hipRise = 0.04f, frontWidth = 0.97f, cabinBase = 0.78f, cabinTop = 0.55f,
+        hoodDip = 0.04f, hipRise = 0.04f, frontWidth = 0.97f, cabinBase = 0.85f, cabinTop = 0.62f,
+        frontWheelR = CarSpec.AUDI.frontTyre.radius, rearWheelR = CarSpec.AUDI.rearTyre.radius,
     )
     val ASTON = CarStyle(
         "vantage", 4.50f, 0.99f, 1.38f, -1.32f, 0.30f, 0.44f,
@@ -147,7 +166,9 @@ object CarModel {
         windshieldZ = 0.3f, roofFrontZ = -0.35f, roofRearZ = -0.9f, rearGlassZ = -1.75f, roofY = 1.27f,
         grille = CarStyle.Grille.ASTON, headlights = CarStyle.Headlights.SWEPT, wing = CarStyle.Wing.NONE,
         exhaust = CarStyle.Exhaust.QUAD, taillights = CarStyle.Taillights.BLADE,
-        hoodDip = 0.06f, hipRise = 0.1f, frontWidth = 0.92f, cabinBase = 0.74f, cabinTop = 0.52f,
+        hoodDip = 0.06f, hipRise = 0.1f, frontWidth = 0.92f, cabinBase = 0.81f, cabinTop = 0.59f,
+        frontWheelR = CarSpec.ASTON.frontTyre.radius, rearWheelR = CarSpec.ASTON.rearTyre.radius,
+        sideGlassRearZ = -1.05f,
     )
 
     fun styleFor(spec: CarSpec): CarStyle = when (spec) {
@@ -165,13 +186,15 @@ object CarModel {
     private fun sideProfile(st: CarStyle): List<P> {
         val pts = ArrayList<P>()
         fun arch(axle: Float) {
-            pts.add(P(axle - ARCH_RADIUS - 0.02f, 0.27f, 0f))
+            val ar = st.archR(axle)
+            val wr = st.wheelR(axle)
+            pts.add(P(axle - ar - 0.02f, 0.27f, 0f))
             val steps = 9
             for (k in 0..steps) {
                 val a = (PI - k * PI / steps).toFloat()
-                pts.add(P(axle + cos(a) * ARCH_RADIUS, WHEEL_RADIUS + sin(a) * ARCH_RADIUS, 0f))
+                pts.add(P(axle + cos(a) * ar, wr + sin(a) * ar, 0f))
             }
-            pts.add(P(axle + ARCH_RADIUS + 0.02f, 0.27f, 0f))
+            pts.add(P(axle + ar + 0.02f, 0.27f, 0f))
         }
         pts.add(P(st.rear + 0.06f, st.tailLowY - 0.08f, 0.4f))
         arch(st.rearAxle)
@@ -206,7 +229,7 @@ object CarModel {
         for (axle in floatArrayOf(st.frontAxle, st.rearAxle)) {
             val t = clamp((abs(z - axle) - 0.3f) / 0.45f, 0f, 1f)
             val w = 0.5f + 0.5f * cos(t * PI.toFloat())
-            top = maxOf(top, (WHEEL_RADIUS + ARCH_RADIUS + 0.06f) * w)
+            top = maxOf(top, (st.wheelR(axle) + st.archR(axle) + 0.06f) * w)
         }
         return top
     }
@@ -287,7 +310,7 @@ object CarModel {
             b.gloss = 0.3f
             b.orientedBox(V3(side * (hw - 0.1f), y - 0.06f, z + 0.02f), V3(0.1f, 0f, 0f), V3(0f, 0.03f, 0f), V3(0f, 0f, 0.035f), paint)
             b.gloss = 0.8f
-            b.blob(V3(side * (hw + 0.02f), y, z), 0.09f, 0.055f, 0.065f, 5, 10, paint)
+            b.blob(V3(side * (hw + 0.02f), y, z), 0.1f, 0.045f, 0.06f, 5, 10, paint)
             b.gloss = 0.95f
             b.orientedBox(V3(side * (hw + 0.02f), y, z - 0.06f), V3(0.075f, 0f, 0f), V3(0f, 0.04f, 0f), V3(0f, 0f, 0.008f), GLASS)
         }
@@ -356,7 +379,7 @@ object CarModel {
             val zv = st.windshieldZ + 0.3f
             b.orientedBox(V3(side * 0.22f, st.topY(zv) + 0.004f, zv), V3(0.12f, 0f, 0f), V3(0f, 0.008f, 0f), V3(0f, 0.02f, 0.12f), TRIM)
         }
-        roofScoop(b, st, paint, 0.13f)
+        roofScoop(b, st, CARBON, 0.1f)
         // Black diffuser fins under the tail.
         b.gloss = 0.3f
         for (x in floatArrayOf(-0.5f, -0.25f, 0f, 0.25f, 0.5f)) b.box(x, 0.3f, st.rear + 0.14f, 0.01f, 0.07f, 0.16f, CARBON)
@@ -397,7 +420,24 @@ object CarModel {
                 b.orientedBox(V3(side * (hw - 0.3f), st.topY(z) + st.hoodDip + 0.005f, z), V3(0.16f, 0f, 0f), V3(0f, 0.008f, 0f), V3(0f, 0.01f, 0.025f), TRIM)
             }
         }
-        roofScoop(b, st, paint, 0.15f)
+        roofScoop(b, st, CARBON, 0.11f)
+        // The long dark scallop along each side, from behind the front wheel to the rear wheel,
+        // with a carbon blade standing out behind the front wheel.
+        for (side in floatArrayOf(-1f, 1f)) {
+            val x = side * (hw - 0.02f)
+            val z0 = st.rearAxle + st.archR(st.rearAxle) + 0.05f
+            val z1 = st.frontAxle - st.archR(st.frontAxle) - 0.05f
+            b.gloss = 0.3f
+            b.hexahedron(
+                arrayOf(
+                    V3(x - side * 0.06f, 0.33f, z0), V3(x + side * 0.012f, 0.33f, z0), V3(x + side * 0.012f, 0.33f, z1), V3(x - side * 0.06f, 0.33f, z1),
+                    V3(x - side * 0.06f, 0.62f, z0 + 0.1f), V3(x + side * 0.012f, 0.62f, z0 + 0.1f), V3(x + side * 0.012f, 0.5f, z1 - 0.25f), V3(x - side * 0.06f, 0.5f, z1 - 0.25f),
+                ),
+                TRIM,
+            )
+            b.gloss = 0.5f
+            b.orientedBox(V3(x + side * 0.03f, 0.5f, z1 - 0.06f), V3(0.012f, 0f, 0f), V3(0f, 0.17f, -0.07f), V3(0f, 0.04f, 0.03f), CARBON)
+        }
         // The fin from the roof down the engine cover to the wing.
         val z0 = st.roofRearZ
         val z1 = st.rear + st.wingZ
@@ -406,7 +446,7 @@ object CarModel {
         b.hexahedron(
             arrayOf(
                 V3(-t, st.topY(z0) + 0.1f, z0), V3(t, st.topY(z0) + 0.1f, z0), V3(t, st.topY(z1), z1), V3(-t, st.topY(z1), z1),
-                V3(-t, st.roofY + 0.02f, z0), V3(t, st.roofY + 0.02f, z0), V3(t, st.topY(z1) + 0.22f, z1), V3(-t, st.topY(z1) + 0.22f, z1),
+                V3(-t, st.roofY - 0.03f, z0), V3(t, st.roofY - 0.03f, z0), V3(t, st.topY(z1) + 0.14f, z1), V3(-t, st.topY(z1) + 0.14f, z1),
             ),
             paint,
         )
@@ -438,27 +478,28 @@ object CarModel {
 
     /** Dark liners inside the wheel arches, so you can't see through the body above the tires. */
     private fun wheelWells(b: MeshBuilder, st: CarStyle) {
-        val r = ARCH_RADIUS + 0.01f
         val hw = st.halfWidth
         b.gloss = 0.05f
         val steps = 12
         for (axle in floatArrayOf(st.frontAxle, st.rearAxle)) for (side in floatArrayOf(-1f, 1f)) {
+            val r = st.archR(axle) + 0.01f
+            val wr = st.wheelR(axle)
             val xo = side * (hw - 0.03f)
             val xi = side * (hw - 0.42f)
             val above = V3(xo, 3f, axle)
             for (k in 0 until steps) {
                 val a0 = (k * PI / steps).toFloat()
                 val a1 = ((k + 1) * PI / steps).toFloat()
-                val p0 = V3(0f, WHEEL_RADIUS + sin(a0) * r, axle + cos(a0) * r)
-                val p1 = V3(0f, WHEEL_RADIUS + sin(a1) * r, axle + cos(a1) * r)
+                val p0 = V3(0f, wr + sin(a0) * r, axle + cos(a0) * r)
+                val p1 = V3(0f, wr + sin(a1) * r, axle + cos(a1) * r)
                 // Liner facing down towards the wheel.
                 b.quad(V3(xo, p0.y, p0.z), V3(xo, p1.y, p1.z), V3(xi, p1.y, p1.z), V3(xi, p0.y, p0.z), WELL, above)
                 // Inner wall facing out.
-                b.tri(V3(xi, WHEEL_RADIUS - 0.08f, axle), V3(xi, p0.y, p0.z), V3(xi, p1.y, p1.z), WELL, V3(0f, WHEEL_RADIUS, axle))
+                b.tri(V3(xi, wr - 0.08f, axle), V3(xi, p0.y, p0.z), V3(xi, p1.y, p1.z), WELL, V3(0f, wr, axle))
             }
             b.quad(
-                V3(xi, WHEEL_RADIUS - 0.08f, axle - r), V3(xi, WHEEL_RADIUS - 0.08f, axle + r),
-                V3(xi, WHEEL_RADIUS, axle + r), V3(xi, WHEEL_RADIUS, axle - r), WELL, V3(0f, WHEEL_RADIUS, axle),
+                V3(xi, wr - 0.08f, axle - r), V3(xi, wr - 0.08f, axle + r),
+                V3(xi, wr, axle + r), V3(xi, wr, axle - r), WELL, V3(0f, wr, axle),
             )
         }
     }
@@ -466,7 +507,7 @@ object CarModel {
     /** Glass greenhouse with painted roof and pillars, lofted along z. */
     private fun cabin(b: MeshBuilder, st: CarStyle, paint: Rgb) {
         val hw = st.halfWidth
-        val zs = (0..20).map { k -> st.rearGlassZ + (st.windshieldZ - st.rearGlassZ) * k / 20f }
+        val zs = (0..40).map { k -> st.rearGlassZ + (st.windshieldZ - st.rearGlassZ) * k / 40f }
         val segs = 32
         fun roofAt(z: Float): Float {
             val base = st.topY(z)
@@ -493,16 +534,25 @@ object CarModel {
                 V3(sx * w, base + t * (roof - base), z)
             }
         }
-        fun isRoof(i: Int, j: Int): Boolean {
-            val (z, _, roof) = secs[i]
-            val p = rings[i][j]
-            return p.y > roof - 0.03f && z < st.roofFrontZ + 0.05f && z > st.roofRearZ - 0.05f
+        // Glass only where the windows are: the windshield and rear window on top, the side windows
+        // above the beltline; pillars, roof, rear quarters and the lid behind the rear window are painted.
+        fun isGlass(i: Int, j: Int): Boolean {
+            val z = secs[i].first
+            val a = ((j + 0.5f) * 360f / segs) % 360f
+            val side = a < 50f || a > 310f || (a > 130f && a < 230f)
+            val pillar = (a in 50f..64f) || (a in 116f..130f)
+            return when {
+                pillar -> false
+                // The beltline sits a little below the greenhouse's middle.
+                side -> sin(Math.toRadians(a.toDouble())).toFloat() > -0.65f && z < st.windshieldZ - 0.12f && z > st.sideGlassRearZ
+                else -> z > st.roofFrontZ || (z < st.roofRearZ && z > st.rearWindowZ)
+            }
         }
         b.loft(
             rings,
-            colorAt = { i, j -> if (isRoof(i, j)) paint else GLASS },
-            glossAt = { i, j -> if (isRoof(i, j)) 0.8f else 1f },
-            capStart = true, capEnd = true,
+            colorAt = { i, j -> if (isGlass(i, j)) GLASS else paint },
+            glossAt = { i, j -> if (isGlass(i, j)) 1f else 0.8f },
+            capStart = true, capEnd = true, flat = true,
         )
     }
 
@@ -624,8 +674,8 @@ object CarModel {
                     val z = st.front - 0.3f
                     val y = archTop(st, z).coerceAtLeast(st.topY(z)) - 0.04f
                     b.gloss = 1f
-                    b.blob(V3(side * (hw - 0.33f), y, z), 0.12f, 0.1f, 0.12f, 5, 12, LENS)
-                    b.blob(V3(side * (hw - 0.33f), y, z + 0.07f), 0.07f, 0.06f, 0.05f, 4, 10, DRL)
+                    b.blob(V3(side * (hw - 0.34f), y, z), 0.14f, 0.12f, 0.14f, 5, 12, LENS)
+                    b.blob(V3(side * (hw - 0.34f), y, z + 0.09f), 0.085f, 0.075f, 0.05f, 4, 10, DRL)
                 }
                 CarStyle.Headlights.Y_SHAPE -> {
                     val z = st.front - 0.24f
@@ -806,22 +856,22 @@ object CarModel {
                 b.vertex(i0, n, color); b.vertex(o1, n, color); b.vertex(i1, n, color)
             }
         }
-        // Dark rim barrel, brake disc, polished rim lip.
-        disc(0.06f, 0.24f, Rgb.hex(0x2A2C30), 0.3f)
-        disc(0.09f, 0.19f, Rgb.hex(0x6D6F73), 0.5f)
-        disc(0.14f, 0.245f, CHROME, 0.9f, inner = 0.22f)
-        // Ten thin spokes in five pairs, and a center lock.
-        b.gloss = 0.9f
+        // Near-black rim barrel and a dark brake disc, so the spokes stand out against them; a bright rim lip.
+        disc(0.05f, 0.24f, Rgb.hex(0x0D0E10), 0.2f)
+        disc(0.085f, 0.2f, Rgb.hex(0x34363A), 0.4f)
+        disc(0.14f, 0.248f, ALLOY, 0.9f, inner = 0.228f)
+        // Ten forged spokes in five pairs, flaring out to the lip, and a center lock.
+        b.gloss = 0.85f
         for (k in 0 until 10) {
-            val a = (k * 2 * PI / 10).toFloat() + if (k % 2 == 0) 0.08f else -0.08f
+            val a = (k * 2 * PI / 10).toFloat() + if (k % 2 == 0) 0.07f else -0.07f
             val dir = V3(0f, cos(a), sin(a))
             val side = V3(0f, -sin(a), cos(a))
-            b.orientedBox(V3(0.13f, 0f, 0f) + dir * 0.13f, V3(0.012f, 0f, 0f), dir * 0.1f, side * 0.014f, CHROME)
+            b.orientedBox(V3(0.128f, 0f, 0f) + dir * 0.14f, V3(0.014f, 0f, 0f), dir * 0.095f, side * 0.019f, ALLOY)
         }
-        b.blob(V3(0.135f, 0f, 0f), 0.02f, 0.05f, 0.05f, 4, 8, CHROME)
+        b.blob(V3(0.13f, 0f, 0f), 0.025f, 0.06f, 0.06f, 4, 10, ALLOY)
+        b.blob(V3(0.15f, 0f, 0f), 0.012f, 0.025f, 0.025f, 3, 8, Rgb.hex(0x18191B))
         b.gloss = 0f
         return b.toArray()
     }
 
-    const val WHEEL_RADIUS_RENDER = WHEEL_RADIUS
 }

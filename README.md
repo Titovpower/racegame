@@ -8,6 +8,7 @@ track through grass, woods and hills, seen from a chase camera behind the car.
 ![On the grass](docs/grass.png)
 ![YOU WIN after 5 laps](docs/win.png)
 ![The six cars](docs/cars.png)
+![Control sensitivity settings](docs/settings.png)
 
 <sub>Screenshots are rendered from the game's own assets and shaders with WebGL 2 in headless Chromium,
 see `tools/preview`. The steering wheel and HUD in them are an approximation of the Android overlay.</sub>

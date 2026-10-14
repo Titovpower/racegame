@@ -161,7 +161,8 @@ class MeshBuilder(initialCapacity: Int = 4096) {
      * Rings are closed loops. Normals come from the grid's neighbors and point away from
      * each ring's center. Optional caps close the first and last ring.
      */
-    fun loft(rings: List<List<V3>>, colorAt: (Int, Int) -> Rgb, glossAt: (Int, Int) -> Float, capStart: Boolean, capEnd: Boolean) {
+    /** [flat]: each quad takes the color and gloss of its first corner, for crisp edges (window outlines). */
+    fun loft(rings: List<List<V3>>, colorAt: (Int, Int) -> Rgb, glossAt: (Int, Int) -> Float, capStart: Boolean, capEnd: Boolean, flat: Boolean = false) {
         val nr = rings.size
         val ns = rings[0].size
         val centers = rings.map { ring ->
@@ -184,7 +185,11 @@ class MeshBuilder(initialCapacity: Int = 4096) {
         for (i in 0 until nr - 1) for (j in 0 until ns) {
             val j1 = (j + 1) % ns
             val idx = arrayOf(i to j, i + 1 to j, i + 1 to j1, i to j, i + 1 to j1, i to j1)
-            for ((a, b) in idx) vertex(rings[a][b], normals[a][b], colorAt(a, b), glossAt(a, b))
+            for ((a, b) in idx) {
+                val ca = if (flat) i else a
+                val cb = if (flat) j else b
+                vertex(rings[a][b], normals[a][b], colorAt(ca, cb), glossAt(ca, cb))
+            }
         }
         fun cap(i: Int, outward: V3) {
             for ((a, b, c) in triangulate(rings[i], outward)) {

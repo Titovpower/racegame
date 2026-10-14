@@ -240,10 +240,13 @@ class Scene(private val game: GameState) {
                 val wx = if (k % 2 == 0) st.wheelX else -st.wheelX
                 val wz = if (k < 2) st.frontAxle else st.rearAxle
                 val m = base.copyOf()
-                Matrix.translateM(m, 0, wx, CarModel.WHEEL_RADIUS_RENDER, wz)
+                // The wheel mesh scaled to this axle's real tire size.
+                val tyre = if (k < 2) r.spec.frontTyre else r.spec.rearTyre
+                val size = tyre.radius / CarModel.WHEEL_RADIUS
+                Matrix.translateM(m, 0, wx, tyre.radius, wz)
                 if (wz > 0f) Matrix.rotateM(m, 0, steerDeg, 0f, 1f, 0f)
                 Matrix.rotateM(m, 0, spinDeg, 1f, 0f, 0f)
-                if (wx < 0f) Matrix.scaleM(m, 0, -1f, 1f, 1f)
+                Matrix.scaleM(m, 0, (if (wx < 0f) -1f else 1f) * tyre.width / 0.3f, size, size)
                 out.add(m)
             }
         }
