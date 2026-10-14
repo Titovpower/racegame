@@ -3,7 +3,7 @@ package com.titovpower.racegame
 import android.app.Activity
 import android.os.Build
 import android.os.Bundle
-import android.opengl.GLSurfaceView
+import android.view.SurfaceView
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
@@ -11,8 +11,7 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 
 class MainActivity : Activity() {
-    private lateinit var surface: GLSurfaceView
-    private lateinit var renderer: GlRenderer
+    private lateinit var renderer: FilamentRenderer
     private lateinit var sound: EngineSound
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -23,10 +22,8 @@ class MainActivity : Activity() {
         val telemetry = Telemetry()
         sound = EngineSound(telemetry)
 
-        surface = GLSurfaceView(this)
-        GlRenderer.setUp(surface)
-        renderer = GlRenderer(this, controls, telemetry)
-        surface.setRenderer(renderer)
+        val surface = SurfaceView(this)
+        renderer = FilamentRenderer(this, surface, controls, telemetry)
         val root = FrameLayout(this)
         root.addView(surface)
         root.addView(ControlOverlayView(this, controls, telemetry, Settings(this)))
@@ -35,16 +32,20 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        surface.onResume()
-        renderer.onResume()
+        renderer.resume()
         sound.start()
         hideSystemBars()
     }
 
     override fun onPause() {
-        surface.onPause()
+        renderer.pause()
         sound.stop()
         super.onPause()
+    }
+
+    override fun onDestroy() {
+        renderer.destroy()
+        super.onDestroy()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {

@@ -9,9 +9,10 @@ val androidAll = "org.robolectric:android-all:15-robolectric-13954326"
 
 sourceSets {
     main {
-        // Everything compiles here, the renderer and activity included (against android-all), so
-        // they are type-checked locally too.
+        // Everything but the Filament renderer and the activity that creates it (Filament is an
+        // Android library; the CI build compiles those).
         kotlin.srcDir(app.resolve("main/java"))
+        kotlin.exclude("**/FilamentRenderer.kt", "**/MainActivity.kt")
     }
     test { kotlin.srcDir(app.resolve("test/java")) }
 }

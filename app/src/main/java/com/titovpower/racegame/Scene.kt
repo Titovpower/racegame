@@ -13,7 +13,7 @@ class CarPose(val asset: String, val model: FloatArray, val braking: Boolean)
 /**
  * What to draw and from where, independent of the rendering engine: the 3D assets (as glTF
  * binaries, generated from the procedural meshes), the chase camera, and each frame's car and
- * wheel transforms, the sun's shadow cascades. The OpenGL renderer and the offline preview both
+ * wheel transforms, and (for the offline preview) the sun's shadow cascades. The Filament renderer and the preview both
  * consume this.
  */
 class Scene(private val game: GameState) {
@@ -30,7 +30,7 @@ class Scene(private val game: GameState) {
                     GlbPart("road", SceneMeshes.road(w.track), Surfacing.ASPHALT),
                     GlbPart("props", SceneMeshes.props(w)),
                     GlbPart("vegetation", SceneMeshes.vegetation(w)),
-                    GlbPart("foliage", SceneMeshes.foliage(w), Surfacing.FOLIAGE),
+                    GlbPart(FOLIAGE_NODE, SceneMeshes.foliage(w), Surfacing.FOLIAGE),
                 ),
             ),
             WHEEL to Glb.write(listOf(GlbPart("wheel", CarModel.wheel()))),
@@ -264,6 +264,8 @@ class Scene(private val game: GameState) {
         const val WORLD = "world"
         const val WHEEL = "wheel"
         const val LIGHTS_NODE = "lights"
+        /** World node holding the grass blades and leaves (kept out of the shadow maps). */
+        const val FOLIAGE_NODE = "foliage"
 
         const val SCREEN_SHIFT = 0.32f
         const val NEAR = 0.5f

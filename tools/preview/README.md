@@ -1,8 +1,8 @@
 # Scene preview (no Android SDK needed)
 
-Renders the game's real glTF assets and sky with WebGL 2 in headless Chromium, using the app's
-own GLSL shaders (`GlShaders.kt`) and the same draw passes as `GlRenderer.kt`, and renders the
-engine sound to WAV.
+Renders the game's real glTF assets and sky with WebGL 2 in headless Chromium, with GLSL shaders
+that approximate Filament's lighting (`src/preview/kotlin/GlShaders.kt`), and renders the engine
+sound to WAV. Tests read the generated glTF back with a small parser (`app/src/test/.../Gltf.kt`).
 
 ```sh
 cd tools/preview

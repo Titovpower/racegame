@@ -10,8 +10,9 @@ track through grass, woods and hills, seen from a chase camera behind the car.
 ![The six cars](docs/cars.png)
 ![Control sensitivity settings](docs/settings.png)
 
-<sub>Screenshots are rendered from the game's own assets and shaders with WebGL 2 in headless Chromium,
-see `tools/preview`. The steering wheel and HUD in them are an approximation of the Android overlay.</sub>
+<sub>Screenshots are rendered from the game's own assets with WebGL 2 in headless Chromium (see
+`tools/preview`), with shaders that approximate Filament's lighting; on the phone Filament renders
+them. The steering wheel and HUD in them are an approximation of the Android overlay.</sub>
 
 ## Cars
 
@@ -76,12 +77,14 @@ cut in briefly. `gradle sound` in `tools/preview` renders a full-throttle run of
 
 ## Graphics
 
-Rendering is plain OpenGL ES 3.0 with the game's own shaders (`GlShaders.kt`), physically
-based and in physical light units: a sun with soft shadows from two shadow-map cascades, an HDR
+Rendering uses [Filament](https://github.com/google/filament), Google's physically based
+rendering engine, on its **Vulkan** backend (phones without Vulkan 1.1 fall back to OpenGL ES 3).
+Lighting is physically based in physical light units: a sun with cascaded soft shadows, an HDR
 sky that lights the scene (spherical harmonics) and reflects in paint and glass, clear-coated
-paint, chrome, textured grass and asphalt, soft contact shadows under the cars, height fog colored
-by the sky, glowing brake lights, 4x MSAA and filmic tone mapping. The world and cars are
-generated in code as glTF, which the renderer loads like any other model.
+paint, chrome, textured grass and asphalt, screen-space ambient occlusion, bloom, height fog
+colored by the sky, glowing brake lights, 4x MSAA, dynamic resolution on slower phones and filmic
+tone mapping. The world and cars are generated in code as glTF, which Filament's glTF loader
+reads like any other model.
 
 ### Real car models
 
@@ -107,17 +110,15 @@ roughness maps are ignored.
 
 ## Tech
 
-Plain Kotlin and OpenGL ES 3.0, no game engine or rendering library. All geometry (terrain, track, trees,
+Kotlin, with Filament (Vulkan) for rendering and no game engine. All geometry (terrain, track, trees,
 grandstand, cars) is generated in code, including ~30,000 grass tufts along the verges and
 individual leaves on the broadleaf trees and bushes (`SceneMeshes.foliage`).
 
 | File | What it does |
 |---|---|
-| `MainActivity.kt` | Fullscreen landscape activity: OpenGL surface + control overlay |
+| `MainActivity.kt` | Fullscreen landscape activity: render surface + control overlay |
 | `ControlOverlayView.kt` | Steering wheel touch control, car picker and HUD |
-| `GlRenderer.kt` | OpenGL ES 3 renderer: shadow passes, sky, models; frame loop |
-| `GlShaders.kt` | GLSL shaders: PBR sun and sky light, shadows, clear coat, fog, tone mapping |
-| `Gltf.kt` | Reads glTF binaries (generated assets and real models) |
+| `FilamentRenderer.kt` | Filament on Vulkan: sun, sky, shadows, post-processing, glTF assets; frame loop |
 | `GameLoop.kt` | Steps the simulation each frame and publishes HUD values |
 | `Scene.kt` | Assets, chase camera, shadow cascades and per-frame car/wheel transforms |
 | `Glb.kt` | Writes the procedural meshes as glTF with PBR materials and detail textures |

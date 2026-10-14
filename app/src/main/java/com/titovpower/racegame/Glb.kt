@@ -18,7 +18,11 @@ enum class Surfacing {
     ASPHALT,
     /** Lamps: emissive, switched on at runtime (brake lights). */
     LAMP,
-    /** Grass blades and leaves: thin cards seen from both sides. */
+    /**
+     * Grass blades and leaves: thin cards seen from both sides. Written with both windings (the
+     * vertices are shared), so each side is a front face with the same upward/outward normal and
+     * lights alike; a double-sided material would flip the normal and darken one side.
+     */
     FOLIAGE,
 }
 
@@ -70,7 +74,7 @@ object Glb {
                 Surfacing.GRASS -> pbr(key, 0f, 0.95f, texture(kind))
                 Surfacing.ASPHALT -> pbr(key, 0f, 0.82f, texture(kind))
                 Surfacing.LAMP -> pbr(key, 0f, 0.25f, emissive = true)
-                Surfacing.FOLIAGE -> pbr(key, 0f, 0.75f, doubleSided = true)
+                Surfacing.FOLIAGE -> pbr(key, 0f, 0.75f)
                 Surfacing.AUTO -> when {
                     gloss >= 0.99f -> pbr(key, 0f, 0.04f) // glass and lenses
                     gloss >= 0.85f -> pbr(key, 1f, 0.18f) // chrome and polished metal
@@ -101,13 +105,23 @@ object Glb {
                 val uvScale = if (part.surfacing == Surfacing.GRASS) 0.25f else 0.5f
                 val unique = HashMap<VertexKey, Int>()
                 val order = ArrayList<Int>()
-                val indices = IntArray(prim.tris.size * 3)
+                val bothSides = part.surfacing == Surfacing.FOLIAGE
+                val indices = IntArray(prim.tris.size * if (bothSides) 6 else 3)
                 var ii = 0
-                for (t in prim.tris) for (k in windingOf(d, t)) {
-                    val o = (t * 3 + k) * F
-                    val key = VertexKey(d, o)
-                    val idx = unique.getOrPut(key) { order.add(o); order.size - 1 }
-                    indices[ii++] = idx
+                for (t in prim.tris) {
+                    val w = windingOf(d, t)
+                    for (k in w) {
+                        val o = (t * 3 + k) * F
+                        val key = VertexKey(d, o)
+                        val idx = unique.getOrPut(key) { order.add(o); order.size - 1 }
+                        indices[ii++] = idx
+                    }
+                    if (bothSides) {
+                        indices[ii] = indices[ii - 3]
+                        indices[ii + 1] = indices[ii - 1]
+                        indices[ii + 2] = indices[ii - 2]
+                        ii += 3
+                    }
                 }
                 val n = order.size
                 val pos = ByteBuffer.allocate(n * 12).order(ByteOrder.LITTLE_ENDIAN)
