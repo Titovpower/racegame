@@ -91,6 +91,7 @@ class ControlOverlayView(
         setShadowLayer(8f, 0f, 3f, Color.BLACK)
     }
     private val rect = RectF()
+    private val revPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         wheelRadius = min(h * 0.17f, w * 0.13f)
@@ -242,6 +243,29 @@ class ControlOverlayView(
         rect.set(pad, chipTop, pad + chipW, chipTop + labelPaint.textSize + 12f * density)
         canvas.drawRoundRect(rect, 8f * density, 8f * density, chipPaint)
         canvas.drawText(chipText, pad + 10f * density, chipTop + labelPaint.textSize + 3f * density, labelPaint)
+
+        // Rev counter: gear and a bar that turns red near the redline.
+        val spec = telemetry.carSpec
+        val barTop = rect.bottom + 10f * density
+        val barW = 150f * density
+        val barH = 8f * density
+        val frac = clamp(telemetry.rpm / spec.redline, 0f, 1f)
+        rect.set(pad, barTop, pad + barW, barTop + barH)
+        canvas.drawRoundRect(rect, barH / 2, barH / 2, trackPaint)
+        revPaint.color = when {
+            frac > 0.92f -> Color.rgb(229, 57, 53)
+            frac > 0.75f -> Color.rgb(255, 179, 0)
+            else -> Color.rgb(250, 250, 250)
+        }
+        rect.set(pad, barTop, pad + barW * frac, barTop + barH)
+        canvas.drawRoundRect(rect, barH / 2, barH / 2, revPaint)
+        val gearText = if (telemetry.gear <= 0) "R" else "${telemetry.gear}"
+        canvas.drawText(gearText, pad + barW + 8f * density, barTop + barH + 2f * density, labelPaint)
+        canvas.drawText(
+            String.format(Locale.US, "%d rpm", (telemetry.rpm / 10f).toInt() * 10),
+            pad, barTop + barH + labelPaint.textSize + 4f * density, hintPaint.also { it.textAlign = Paint.Align.LEFT },
+        )
+        hintPaint.textAlign = Paint.Align.CENTER
 
         // Position, lap and lap times, top right.
         val right = width - pad

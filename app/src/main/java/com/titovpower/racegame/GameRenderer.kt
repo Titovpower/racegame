@@ -39,6 +39,11 @@ class Telemetry {
     /** True while the player is choosing a car before the race. */
     @Volatile var picking = false
     @Volatile var carSpec: CarSpec = CarSpec.PORSCHE
+    @Volatile var rpm = CarSpec.IDLE_RPM
+    /** 1-based gear, 0 = reverse. */
+    @Volatile var gear = 1
+    @Volatile var shifting = false
+    @Volatile var throttle = 0f
     /** Screen position (fractions of width/height) just above the player's car, or negative if off screen. */
     @Volatile var carScreenX = -1f
     @Volatile var carScreenY = -1f
@@ -124,6 +129,10 @@ class GameRenderer(
         telemetry.finishTime = game.player.finishTime
         telemetry.picking = game.phase == GameState.Phase.PICKING
         telemetry.carSpec = game.playerSpec
+        telemetry.rpm = game.gearbox.rpm
+        telemetry.gear = game.gearbox.gear + 1
+        telemetry.shifting = game.gearbox.shifting > 0f
+        telemetry.throttle = controls.throttle
 
         scene.updateCamera(dt, aspect)
         val above = scene.playerScreenPoint(2.3f)

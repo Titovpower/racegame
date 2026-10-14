@@ -15,6 +15,7 @@ import javax.microedition.khronos.egl.EGLDisplay
 
 class MainActivity : Activity() {
     private lateinit var glView: GLSurfaceView
+    private lateinit var sound: EngineSound
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -22,6 +23,7 @@ class MainActivity : Activity() {
 
         val controls = Controls()
         val telemetry = Telemetry()
+        sound = EngineSound(telemetry)
 
         glView = GLSurfaceView(this).apply {
             setEGLContextClientVersion(2)
@@ -38,11 +40,13 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         glView.onResume()
+        sound.start()
         hideSystemBars()
     }
 
     override fun onPause() {
         glView.onPause()
+        sound.stop()
         super.onPause()
     }
 

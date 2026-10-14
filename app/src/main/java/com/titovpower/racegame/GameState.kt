@@ -64,6 +64,8 @@ class GameState(val world: World, val opponents: Int = 8, val totalLaps: Int = 5
     var playerSpec = CarSpec.PORSCHE
         private set
     val racers = ArrayList<Racer>()
+    /** The player's automatic gearbox (drives the engine sound and rev counter). */
+    val gearbox = Gearbox { playerSpec }
     lateinit var player: Racer
         private set
 
@@ -115,6 +117,7 @@ class GameState(val world: World, val opponents: Int = 8, val totalLaps: Int = 5
         }
         player = racers.last()
         phase = Phase.PICKING
+        gearbox.reset()
         countdown = COUNTDOWN
         raceTime = 0f
         updateStandings()
@@ -133,6 +136,8 @@ class GameState(val world: World, val opponents: Int = 8, val totalLaps: Int = 5
     }
 
     fun update(dt: Float, steer: Float, throttle: Float, brake: Float) {
+        // Revving on the grid works before the start, too.
+        gearbox.update(dt, car.speed, throttle)
         if (phase == Phase.PICKING) return
         if (phase == Phase.COUNTDOWN) {
             countdown -= dt

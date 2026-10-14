@@ -26,3 +26,9 @@ tasks.register<JavaExec>("export") {
     mainClass.set("ExportKt")
     args(project.findProperty("out")?.toString() ?: "build/export")
 }
+
+tasks.register<JavaExec>("sound") {
+    classpath = preview.runtimeClasspath
+    mainClass.set("SoundExportKt")
+    args(project.findProperty("out")?.toString() ?: "build/sound")
+}

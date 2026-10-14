@@ -230,4 +230,47 @@ class GameLogicTest {
         val progress = game.standings.map { it.progress }
         assertEquals(progress.sortedDescending(), progress)
     }
+
+    @Test
+    fun gearboxShiftsUpThroughTheGearsUnderTheRedline() {
+        for (spec in CarSpec.ALL) {
+            val car = CarPhysics(spec = spec)
+            val box = Gearbox { spec }
+            var maxRpm = 0f
+            var t = 0f
+            while (t < 60f) {
+                car.update(0.005f, 0f, 1f, 0f, Surface.STREET)
+                box.update(0.005f, car.speed, 1f)
+                if (car.speed > 3f) maxRpm = maxOf(maxRpm, box.rpm)
+                t += 0.005f
+            }
+            assertTrue("${spec.brand} top gear ${box.gear + 1}", box.gear >= spec.gears - 2)
+            assertTrue("${spec.brand} max rpm $maxRpm", maxRpm <= spec.redline + 1f && maxRpm > spec.redline * 0.85f)
+            // Slowing down shifts back down.
+            while (car.speed > 0.5f) { car.update(0.005f, 0f, 0f, 1f, Surface.STREET); box.update(0.005f, car.speed, 0f) }
+            assertEquals(0, box.gear)
+        }
+    }
+
+    @Test
+    fun engineSoundRisesInPitchWithRpm() {
+        fun zeroCrossings(rpm: Float): Int {
+            val synth = EngineSynth(22050)
+            val buf = ShortArray(22050)
+            // Settle, then measure a second at constant rpm.
+            synth.render(buf, Engine.V8, 7000f, rpm, 0.5f, 0.8f)
+            synth.render(buf, Engine.V8, 7000f, rpm, 0.5f, 0.8f)
+            assertTrue(buf.maxOf { kotlin.math.abs(it.toInt()) } > 3000)
+            var lowPassed = 0f
+            var last = 0f
+            var crossings = 0
+            for (v in buf) {
+                lowPassed += (v - lowPassed) * 0.05f
+                if ((lowPassed > 0f) != (last > 0f)) crossings++
+                last = lowPassed
+            }
+            return crossings
+        }
+        assertTrue(zeroCrossings(6000f) > zeroCrossings(1500f) * 2)
+    }
 }

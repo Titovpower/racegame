@@ -51,6 +51,9 @@ class CarSpec(
     val wheelRadius: Float = 0.345f,
     /** Maximum front wheel angle at standstill, radians. */
     val maxSteer: Float = 0.6f,
+    val engine: Engine = Engine.V8,
+    val redline: Float = 7000f,
+    val gears: Int = 7,
 ) {
     /** Power reaching the wheels after drivetrain losses, W. */
     val wheelPower = powerKw * 1000f * 0.88f
@@ -75,6 +78,19 @@ class CarSpec(
     }
 
     val powerHp get() = (powerKw * 1.36f).toInt()
+
+    /**
+     * Overall gear ratios (gearbox x final drive), geometric from 1st to top gear: top gear reaches
+     * top speed just under the redline, 1st gear runs out at ~28% of top speed.
+     */
+    val gearRatios: FloatArray = run {
+        val top = redline * 0.97f * RPM_TO_RAD / (topSpeed / wheelRadius)
+        val first = redline * RPM_TO_RAD / (topSpeed * 0.28f / wheelRadius)
+        FloatArray(gears) { g -> first * Math.pow((top / first).toDouble(), g / (gears - 1.0)).toFloat() }
+    }
+
+    /** Engine speed in gear [gear] (0-based) at road speed v, never below idle. */
+    fun rpm(v: Float, gear: Int) = maxOf(IDLE_RPM, abs(v) / wheelRadius * gearRatios[gear] / RPM_TO_RAD)
 
     private fun zeroTo100Time(tractionGuess: Float): Float {
         var v = 0f
@@ -118,14 +134,69 @@ class CarSpec(
     }
 
     companion object {
-        val LAMBORGHINI = CarSpec("Lamborghini", "Huracán EVO", 1550f, 470f, 325f, 2.9f, true, 2.62f, 1.30f, 0.20f, 1.30f)
-        val PORSCHE = CarSpec("Porsche", "911 GT3", 1435f, 375f, 318f, 3.4f, false, 2.46f, 1.35f, 0.30f, 1.35f)
-        val BMW = CarSpec("BMW", "M4 Competition", 1775f, 390f, 290f, 3.5f, true, 2.86f, 1.12f, 0.05f, 1.20f)
-        val MERCEDES = CarSpec("Mercedes-AMG", "GT R", 1630f, 430f, 318f, 3.6f, false, 2.63f, 1.25f, 0.20f, 1.28f)
-        val AUDI = CarSpec("Audi", "R8 V10 performance", 1595f, 456f, 331f, 3.1f, true, 2.65f, 1.25f, 0.15f, 1.28f)
-        val ASTON = CarSpec("Aston Martin", "Vantage", 1605f, 489f, 325f, 3.5f, false, 2.70f, 1.20f, 0.12f, 1.25f)
+        val LAMBORGHINI = CarSpec("Lamborghini", "Huracán EVO", 1550f, 470f, 325f, 2.9f, true, 2.62f, 1.30f, 0.20f, 1.30f, engine = Engine.V10, redline = 8500f, gears = 7)
+        val PORSCHE = CarSpec("Porsche", "911 GT3", 1435f, 375f, 318f, 3.4f, false, 2.46f, 1.35f, 0.30f, 1.35f, engine = Engine.FLAT6, redline = 9000f, gears = 7)
+        val BMW = CarSpec("BMW", "M4 Competition", 1775f, 390f, 290f, 3.5f, true, 2.86f, 1.12f, 0.05f, 1.20f, engine = Engine.INLINE6, redline = 7200f, gears = 8)
+        val MERCEDES = CarSpec("Mercedes-AMG", "GT R", 1630f, 430f, 318f, 3.6f, false, 2.63f, 1.25f, 0.20f, 1.28f, engine = Engine.V8, redline = 7200f, gears = 7)
+        val AUDI = CarSpec("Audi", "R8 V10 performance", 1595f, 456f, 331f, 3.1f, true, 2.65f, 1.25f, 0.15f, 1.28f, engine = Engine.V10, redline = 8700f, gears = 7)
+        val ASTON = CarSpec("Aston Martin", "Vantage", 1605f, 489f, 325f, 3.5f, false, 2.70f, 1.20f, 0.12f, 1.25f, engine = Engine.V8, redline = 7000f, gears = 8)
 
         val ALL = listOf(LAMBORGHINI, PORSCHE, BMW, MERCEDES, AUDI, ASTON)
+
+        const val IDLE_RPM = 950f
+        /** rev/min to rad/s. */
+        const val RPM_TO_RAD = (2 * Math.PI / 60).toFloat()
+    }
+}
+
+/** Engine layout: sets the sound (firing order and character). */
+enum class Engine(val cylinders: Int, val label: String) {
+    V10(10, "V10"), FLAT6(6, "flat-six"), INLINE6(6, "inline-six"), V8(8, "V8");
+}
+
+/**
+ * Automatic gearbox: shifts up near the redline, down when revs drop, with a short
+ * shift time. Used for the engine sound and the rev counter.
+ */
+class Gearbox(private val spec: () -> CarSpec) {
+    /** 0-based gear; -1 is reverse. */
+    var gear = 0
+        private set
+    var rpm = CarSpec.IDLE_RPM
+        private set
+    /** > 0 while a shift is in progress (seconds left). */
+    var shifting = 0f
+        private set
+
+    fun reset() {
+        gear = 0
+        rpm = CarSpec.IDLE_RPM
+        shifting = 0f
+    }
+
+    fun update(dt: Float, speed: Float, throttle: Float) {
+        val s = spec()
+        if (speed < -0.3f) {
+            gear = -1
+            rpm = s.rpm(speed, 0)
+            return
+        }
+        if (gear < 0) gear = 0
+        shifting = maxOf(0f, shifting - dt)
+        val wheelRpm = s.rpm(speed, gear)
+        if (shifting == 0f) {
+            if (wheelRpm > s.redline * 0.96f && gear < s.gears - 1) {
+                gear++
+                shifting = 0.12f
+            } else if (gear > 0 && s.rpm(speed, gear - 1) < s.redline * (if (throttle > 0.5f) 0.7f else 0.5f)) {
+                gear--
+                shifting = 0.12f
+            }
+        }
+        // Stationary or slipping clutch: throttle revs the engine freely.
+        val free = CarSpec.IDLE_RPM + throttle * (s.redline * 0.55f - CarSpec.IDLE_RPM)
+        val target = if (gear == 0 && wheelRpm < free) maxOf(wheelRpm, free * clamp(1f - speed / 8f, 0f, 1f)) else wheelRpm
+        rpm += (target.coerceAtMost(s.redline) - rpm) * minOf(1f, dt * 14f)
     }
 }
 
