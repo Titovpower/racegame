@@ -44,8 +44,12 @@ class CarStyle(
     /** Greenhouse half-width at its base and at the roof, relative to the body. */
     val cabinBase: Float = 0.84f,
     val cabinTop: Float = 0.6f,
+    /** Wing height above the deck (0 = the wing type's default). */
+    val wingRise: Float = 0f,
+    /** Wing position: distance of its center from the tail. */
+    val wingZ: Float = 0.32f,
 ) {
-    enum class Grille { LAMBO, PORSCHE, KIDNEY, PANAMERICANA, SINGLEFRAME, ASTON }
+    enum class Grille { LAMBO, PORSCHE, KIDNEY, PANAMERICANA, SINGLEFRAME, ASTON, ONE }
     enum class Headlights { Y_SHAPE, ROUND, ANGULAR, SLIM, SWEPT }
     enum class Wing { LIP, SWAN_NECK, FIXED, NONE }
     enum class Exhaust { CENTER_HIGH, CENTER_PAIR, QUAD, OVAL_PAIR }
@@ -82,20 +86,27 @@ object CarModel {
     private val DRL = Rgb(1f, 1f, 1f)
 
     val LAMBORGHINI = CarStyle(
+        // From Andy's reference photo (Huracán Super Trofeo EVO2 race car): wedge nose with huge intakes and
+        // a wide splitter, hood vents, a roof scoop and a big swan-neck wing.
         "lambo", 4.52f, 0.965f, 1.36f, -1.26f, 0.32f, 0.42f,
         listOf(2.26f to 0.40f, 2.1f to 0.55f, 1.6f to 0.66f, 0.9f to 0.79f, 0.2f to 0.82f, -0.7f to 0.86f, -1.0f to 0.98f, -1.8f to 1.0f, -2.15f to 0.98f, -2.26f to 0.9f),
         windshieldZ = 0.9f, roofFrontZ = -0.05f, roofRearZ = -0.7f, rearGlassZ = -1.05f, roofY = 1.16f,
-        grille = CarStyle.Grille.LAMBO, headlights = CarStyle.Headlights.Y_SHAPE, wing = CarStyle.Wing.LIP,
+        grille = CarStyle.Grille.LAMBO, headlights = CarStyle.Headlights.Y_SHAPE, wing = CarStyle.Wing.SWAN_NECK,
         exhaust = CarStyle.Exhaust.CENTER_HIGH, taillights = CarStyle.Taillights.Y_SHAPE, sideIntake = true,
         hoodDip = 0.02f, hipRise = 0.04f, frontWidth = 0.98f, cabinBase = 0.78f, cabinTop = 0.52f,
+        // Super Trofeo EVO2 (Andy's reference photo): a big wing on swan necks, overhanging the tail.
+        wingRise = 0.44f, wingZ = 0.22f,
     )
     val PORSCHE = CarStyle(
+        // From Andy's reference photos (911 GT3 RS): tall fenders over a low hood with two big vents,
+        // a wide black lower intake, a huge swan-neck wing and intakes behind the doors.
         "911", 4.57f, 0.925f, 1.30f, -1.16f, 0.32f, 0.40f,
         listOf(2.28f to 0.52f, 2.1f to 0.62f, 1.5f to 0.72f, 0.75f to 0.85f, 0f to 0.87f, -0.9f to 0.9f, -1.8f to 0.93f, -2.2f to 0.92f, -2.28f to 0.8f),
         windshieldZ = 0.75f, roofFrontZ = 0.15f, roofRearZ = -0.55f, rearGlassZ = -1.85f, roofY = 1.28f,
         grille = CarStyle.Grille.PORSCHE, headlights = CarStyle.Headlights.ROUND, wing = CarStyle.Wing.SWAN_NECK,
         exhaust = CarStyle.Exhaust.CENTER_PAIR, taillights = CarStyle.Taillights.FULL_BAR,
         hoodDip = 0.1f, hipRise = 0.07f, frontWidth = 0.93f, cabinBase = 0.8f, cabinTop = 0.6f,
+        wingRise = 0.56f, wingZ = 0.42f,
     )
     val BMW = CarStyle(
         "m4", 4.79f, 0.945f, 1.50f, -1.36f, 0.30f, 0.45f,
@@ -108,12 +119,15 @@ object CarModel {
         hoodDip = 0.03f, hipRise = 0.05f, frontWidth = 0.97f, cabinBase = 0.84f, cabinTop = 0.62f,
     )
     val MERCEDES = CarStyle(
-        "amggt", 4.55f, 1.0f, 1.25f, -1.38f, 0.30f, 0.42f,
-        listOf(2.27f to 0.55f, 2.12f to 0.66f, 1.4f to 0.82f, 0.3f to 0.94f, -0.4f to 0.92f, -1.2f to 0.92f, -1.9f to 0.95f, -2.2f to 0.94f, -2.27f to 0.82f),
-        windshieldZ = 0.3f, roofFrontZ = -0.35f, roofRearZ = -0.95f, rearGlassZ = -1.9f, roofY = 1.28f,
-        grille = CarStyle.Grille.PANAMERICANA, headlights = CarStyle.Headlights.SLIM, wing = CarStyle.Wing.FIXED,
-        exhaust = CarStyle.Exhaust.CENTER_PAIR, taillights = CarStyle.Taillights.SLIM_PAIR,
-        hoodDip = 0.05f, hipRise = 0.06f, frontWidth = 0.95f, cabinBase = 0.8f, cabinTop = 0.58f,
+        "amggt", 4.76f, 1.0f, 1.30f, -1.42f, 0.26f, 0.4f,
+        // From Andy's reference photos (AMG ONE hypercar): low nose with big dark openings, cab-forward
+        // teardrop cabin with a roof snorkel, a long engine cover with a fin, and a big carbon wing.
+        listOf(2.38f to 0.44f, 2.25f to 0.57f, 1.9f to 0.68f, 1.3f to 0.77f, 0.95f to 0.82f, 0f to 0.92f, -0.95f to 1.0f, -1.6f to 0.98f, -2.15f to 0.95f, -2.3f to 0.92f, -2.38f to 0.8f),
+        windshieldZ = 0.95f, roofFrontZ = 0.15f, roofRearZ = -0.45f, rearGlassZ = -0.95f, roofY = 1.25f,
+        grille = CarStyle.Grille.ONE, headlights = CarStyle.Headlights.SWEPT, wing = CarStyle.Wing.FIXED,
+        exhaust = CarStyle.Exhaust.CENTER_PAIR, taillights = CarStyle.Taillights.SLIM_PAIR, sideIntake = true,
+        hoodDip = 0.09f, hipRise = 0.08f, frontWidth = 0.94f, cabinBase = 0.68f, cabinTop = 0.46f,
+        wingRise = 0.2f, wingZ = 0.26f,
     )
     val AUDI = CarStyle(
         "r8", 4.43f, 0.97f, 1.34f, -1.31f, 0.32f, 0.42f,
@@ -253,7 +267,13 @@ object CarModel {
         wing(b, st, paint)
         exhaust(b, st)
         tailHousings(b, st)
-        if (st.grille == CarStyle.Grille.ASTON) astonDetails(b, st)
+        when (st.grille) {
+            CarStyle.Grille.ASTON -> astonDetails(b, st)
+            CarStyle.Grille.LAMBO -> lamboDetails(b, st, paint)
+            CarStyle.Grille.PORSCHE -> porscheDetails(b, st)
+            CarStyle.Grille.ONE -> oneDetails(b, st, paint)
+            else -> Unit
+        }
         if (st.grille == CarStyle.Grille.SINGLEFRAME) {
             // R8 rear: a black mesh band across the whole tail under the lights.
             val zr = st.rear - 0.005f
@@ -327,6 +347,90 @@ object CarModel {
         for (side in floatArrayOf(-1f, 1f)) {
             b.orientedBox(V3(side * (hw * 0.5f - 0.05f), 0.43f, zr - 0.03f), V3(hw * 0.36f, side * 0.04f, 0f), V3(0f, 0.01f, 0f), V3(0f, 0f, 0.012f), CHROME.scale(0.8f))
         }
+    }
+
+    /** Super Trofeo details: two vents in the hood ahead of the windshield and a scoop on the roof. */
+    private fun lamboDetails(b: MeshBuilder, st: CarStyle, paint: Rgb) {
+        b.gloss = 0.2f
+        for (side in floatArrayOf(-1f, 1f)) {
+            val zv = st.windshieldZ + 0.3f
+            b.orientedBox(V3(side * 0.22f, st.topY(zv) + 0.004f, zv), V3(0.12f, 0f, 0f), V3(0f, 0.008f, 0f), V3(0f, 0.02f, 0.12f), TRIM)
+        }
+        roofScoop(b, st, paint, 0.13f)
+        // Black diffuser fins under the tail.
+        b.gloss = 0.3f
+        for (x in floatArrayOf(-0.5f, -0.25f, 0f, 0.25f, 0.5f)) b.box(x, 0.3f, st.rear + 0.14f, 0.01f, 0.07f, 0.16f, CARBON)
+    }
+
+    /** GT3 RS details: two big hood vents, an intake slot behind each door and a black diffuser. */
+    private fun porscheDetails(b: MeshBuilder, st: CarStyle) {
+        val hw = st.halfWidth
+        b.gloss = 0.2f
+        for (side in floatArrayOf(-1f, 1f)) {
+            val zv = st.front - 0.62f
+            b.orientedBox(V3(side * 0.2f, st.topY(zv) + 0.01f, zv), V3(0.13f, 0f, 0f), V3(0f, 0.01f, 0.02f), V3(0f, -0.02f, 0.2f), TRIM)
+            // Louvers on top of the front fenders.
+            for (k in 0..5) {
+                val z = st.frontAxle + 0.22f - k * 0.08f
+                b.orientedBox(V3(side * (hw - 0.3f), st.topY(z) + st.hoodDip + 0.005f, z), V3(0.13f, 0f, 0f), V3(0f, 0.008f, 0f), V3(0f, 0.01f, 0.02f), TRIM)
+            }
+            // Slot in the rear fender, just behind the door.
+            val zs = st.rearAxle + ARCH_RADIUS + 0.22f
+            b.orientedBox(V3(side * (hw - 0.02f), 0.66f, zs), V3(0.03f, 0f, 0f), V3(0f, 0.13f, -0.04f), V3(0f, 0f, 0.05f), TRIM)
+        }
+        val zr = st.rear - 0.005f
+        b.gloss = 0.3f
+        plateZ(b, listOf(-(hw - 0.2f) to 0.26f, hw - 0.2f to 0.26f, hw - 0.18f to 0.42f, -(hw - 0.18f) to 0.42f), zr - 0.08f, zr - 0.03f, TRIM)
+    }
+
+    /** AMG ONE details: hood vents, louvers over the front wheels, a roof snorkel and a fin down the engine cover. */
+    private fun oneDetails(b: MeshBuilder, st: CarStyle, paint: Rgb) {
+        val hw = st.halfWidth
+        b.gloss = 0.2f
+        for (side in floatArrayOf(-1f, 1f)) {
+            // Two long vents in the hood.
+            val zv = st.front - 0.75f
+            b.orientedBox(V3(side * 0.24f, st.topY(zv) + 0.01f, zv), V3(0.12f, 0f, 0f), V3(0f, 0.01f, 0f), V3(0f, -0.02f, 0.28f), TRIM)
+            // Louvers on top of the front fenders.
+            for (k in 0..4) {
+                val z = st.frontAxle + 0.2f - k * 0.1f
+                b.orientedBox(V3(side * (hw - 0.3f), st.topY(z) + st.hoodDip + 0.005f, z), V3(0.16f, 0f, 0f), V3(0f, 0.008f, 0f), V3(0f, 0.01f, 0.025f), TRIM)
+            }
+        }
+        roofScoop(b, st, paint, 0.15f)
+        // The fin from the roof down the engine cover to the wing.
+        val z0 = st.roofRearZ
+        val z1 = st.rear + st.wingZ
+        val t = 0.012f
+        b.gloss = 0.8f
+        b.hexahedron(
+            arrayOf(
+                V3(-t, st.topY(z0) + 0.1f, z0), V3(t, st.topY(z0) + 0.1f, z0), V3(t, st.topY(z1), z1), V3(-t, st.topY(z1), z1),
+                V3(-t, st.roofY + 0.02f, z0), V3(t, st.roofY + 0.02f, z0), V3(t, st.topY(z1) + 0.22f, z1), V3(-t, st.topY(z1) + 0.22f, z1),
+            ),
+            paint,
+        )
+    }
+
+    /** Air scoop on the roof center: its mouth faces forward, and it runs back over the rear glass. */
+    private fun roofScoop(b: MeshBuilder, st: CarStyle, paint: Rgb, height: Float) {
+        val zf = (st.roofFrontZ + st.roofRearZ) / 2f + 0.1f
+        val zb = st.rearGlassZ + 0.1f
+        val yf = st.roofY - 0.02f
+        val yb = st.topY(zb) + 0.02f
+        val wf = 0.13f
+        val wb = 0.08f
+        b.gloss = 0.8f
+        b.hexahedron(
+            arrayOf(
+                V3(-wf, yf, zf), V3(wf, yf, zf), V3(wb, yb, zb), V3(-wb, yb, zb),
+                V3(-wf, yf + height, zf), V3(wf, yf + height, zf), V3(wb, yb + 0.04f, zb), V3(-wb, yb + 0.04f, zb),
+            ),
+            paint,
+        )
+        // The dark mouth.
+        b.gloss = 0.1f
+        b.orientedBox(V3(0f, yf + height * 0.55f, zf + 0.004f), V3(wf - 0.025f, 0f, 0f), V3(0f, height * 0.35f, 0f), V3(0f, 0f, 0.006f), WELL)
     }
 
     /** [plate] for faces pointing backwards (polygons given as seen from behind). */
@@ -425,13 +529,17 @@ object CarModel {
         when (st.grille) {
             CarStyle.Grille.LAMBO -> {
                 // Big angular corner intakes and a dark center lip.
+                // Super Trofeo: huge hexagonal corner intakes, a low center mesh and a wide carbon splitter.
                 for (side in floatArrayOf(-1f, 1f)) {
-                    plate(b, listOf(side * 0.35f to 0.3f, side * 0.8f to 0.3f, side * 0.84f to 0.42f, side * 0.45f to 0.44f), zf - 0.2f, zf - 0.04f, TRIM)
+                    plate(b, listOf(side * 0.36f to 0.28f, side * 0.82f to 0.28f, side * 0.88f to 0.4f, side * 0.8f to 0.5f, side * 0.5f to 0.47f, side * 0.4f to 0.4f), zf - 0.22f, zf - 0.03f, TRIM)
                 }
-                plate(b, listOf(-0.3f to 0.3f, 0.3f to 0.3f, 0.25f to 0.36f, -0.25f to 0.36f), zf - 0.15f, zf - 0.02f, TRIM)
+                plate(b, listOf(-0.34f to 0.28f, 0.34f to 0.28f, 0.3f to 0.38f, -0.3f to 0.38f), zf - 0.15f, zf - 0.01f, TRIM)
+                b.gloss = 0.4f
+                b.box(0f, 0.25f, zf - 0.04f, st.halfWidth - 0.04f, 0.018f, 0.12f, CARBON)
             }
             CarStyle.Grille.PORSCHE -> {
-                plate(b, listOf(-0.4f to 0.3f, 0.4f to 0.3f, 0.36f to 0.42f, -0.36f to 0.42f), zf - 0.2f, zf - 0.03f, TRIM)
+                // GT3 RS: one wide black intake across the lower bumper.
+                plate(b, listOf(-0.62f to 0.27f, 0.62f to 0.27f, 0.58f to 0.45f, -0.58f to 0.45f), zf - 0.2f, zf - 0.03f, TRIM)
                 for (side in floatArrayOf(-1f, 1f)) {
                     plate(b, listOf(side * 0.5f to 0.3f, side * 0.78f to 0.3f, side * 0.74f to 0.42f, side * 0.52f to 0.42f), zf - 0.25f, zf - 0.07f, TRIM)
                 }
@@ -478,6 +586,15 @@ object CarModel {
                     b.orientedBox(V3(side * 0.82f, 0.36f, zf - 0.12f), V3(0.08f, side * 0.03f, 0f), V3(0f, 0.006f, 0f), V3(0f, 0f, 0.06f), CARBON)
                     b.gloss = 0.3f
                 }
+            }
+            CarStyle.Grille.ONE -> {
+                // AMG ONE: a wide low center intake and big dark openings under the lamps.
+                plate(b, listOf(-0.42f to 0.27f, 0.42f to 0.27f, 0.36f to 0.42f, -0.36f to 0.42f), zf - 0.16f, zf - 0.02f, TRIM)
+                for (side in floatArrayOf(-1f, 1f)) {
+                    plate(b, listOf(side * 0.5f to 0.27f, side * 0.86f to 0.3f, side * 0.84f to 0.5f, side * 0.56f to 0.5f, side * 0.46f to 0.4f), zf - 0.28f, zf - 0.06f, TRIM)
+                }
+                b.gloss = 0.4f
+                b.box(0f, 0.23f, zf - 0.04f, st.halfWidth - 0.08f, 0.015f, 0.1f, CARBON)
             }
             CarStyle.Grille.ASTON -> {
                 // The huge grille: widest near the bottom, narrowing to the top, with horizontal slats,
@@ -564,9 +681,9 @@ object CarModel {
                 )
             }
             CarStyle.Wing.SWAN_NECK, CarStyle.Wing.FIXED -> {
-                val z = zr + 0.32f
+                val z = zr + st.wingZ
                 val deck = st.topY(z + 0.15f)
-                val wingY = deck + if (st.wing == CarStyle.Wing.SWAN_NECK) 0.36f else 0.28f
+                val wingY = deck + if (st.wingRise > 0f) st.wingRise else if (st.wing == CarStyle.Wing.SWAN_NECK) 0.36f else 0.28f
                 b.gloss = 0.4f
                 for (x in floatArrayOf(-0.45f, 0.45f)) {
                     if (st.wing == CarStyle.Wing.SWAN_NECK) {
@@ -582,7 +699,7 @@ object CarModel {
                         V3(-hw + 0.05f, wingY - 0.03f, z - 0.2f), V3(hw - 0.05f, wingY - 0.03f, z - 0.2f), V3(hw - 0.05f, wingY - 0.01f, z + 0.15f), V3(-hw + 0.05f, wingY - 0.01f, z + 0.15f),
                         V3(-hw + 0.05f, wingY + 0.03f, z - 0.2f), V3(hw - 0.05f, wingY + 0.03f, z - 0.2f), V3(hw - 0.05f, wingY + 0.01f, z + 0.15f), V3(-hw + 0.05f, wingY + 0.01f, z + 0.15f),
                     ),
-                    if (st.wing == CarStyle.Wing.SWAN_NECK) CARBON else paint,
+                    CARBON,
                 )
                 for (side in floatArrayOf(-1f, 1f)) b.box(side * (hw - 0.04f), wingY, z - 0.03f, 0.012f, 0.08f, 0.2f, CARBON)
             }

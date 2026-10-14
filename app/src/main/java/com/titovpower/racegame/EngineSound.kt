@@ -37,6 +37,8 @@ class EngineSynth(private val sampleRate: Int) {
             Engine.FLAT6 -> 0.9f
             Engine.INLINE6 -> 1.1f
             Engine.V8 -> 1.25f
+            // Formula 1-derived V6: high-revving and shrill.
+            Engine.V6 -> 0.6f
         }
         val burble = if (engine == Engine.V8) 0.45f else if (engine == Engine.FLAT6) 0.18f else 0.06f
         for (i in 0 until n) {

@@ -135,9 +135,9 @@ class CarSpec(
 
     companion object {
         val LAMBORGHINI = CarSpec("Lamborghini", "Huracán EVO", 1550f, 470f, 325f, 2.9f, true, 2.62f, 1.30f, 0.20f, 1.30f, engine = Engine.V10, redline = 8500f, gears = 7)
-        val PORSCHE = CarSpec("Porsche", "911 GT3", 1435f, 375f, 318f, 3.4f, false, 2.46f, 1.35f, 0.30f, 1.35f, engine = Engine.FLAT6, redline = 9000f, gears = 7)
+        val PORSCHE = CarSpec("Porsche", "911 GT3 RS", 1450f, 386f, 296f, 3.2f, false, 2.46f, 1.38f, 0.40f, 1.38f, engine = Engine.FLAT6, redline = 9000f, gears = 7)
         val BMW = CarSpec("BMW", "M4 Competition", 1775f, 390f, 290f, 3.5f, true, 2.86f, 1.12f, 0.05f, 1.20f, engine = Engine.INLINE6, redline = 7200f, gears = 8)
-        val MERCEDES = CarSpec("Mercedes-AMG", "GT R", 1630f, 430f, 318f, 3.6f, false, 2.63f, 1.25f, 0.20f, 1.28f, engine = Engine.V8, redline = 7200f, gears = 7)
+        val MERCEDES = CarSpec("Mercedes-AMG", "ONE", 1695f, 782f, 352f, 2.9f, true, 2.72f, 1.40f, 0.40f, 1.40f, engine = Engine.V6, redline = 11000f, gears = 7)
         val AUDI = CarSpec("Audi", "R8 V10 performance", 1595f, 456f, 331f, 3.1f, true, 2.65f, 1.25f, 0.15f, 1.28f, engine = Engine.V10, redline = 8700f, gears = 7)
         val ASTON = CarSpec("Aston Martin", "Vantage", 1605f, 489f, 325f, 3.5f, false, 2.70f, 1.20f, 0.12f, 1.25f, engine = Engine.V8, redline = 7000f, gears = 8)
 
@@ -151,7 +151,7 @@ class CarSpec(
 
 /** Engine layout: sets the sound (firing order and character). */
 enum class Engine(val cylinders: Int, val label: String) {
-    V10(10, "V10"), FLAT6(6, "flat-six"), INLINE6(6, "inline-six"), V8(8, "V8");
+    V10(10, "V10"), FLAT6(6, "flat-six"), INLINE6(6, "inline-six"), V8(8, "V8"), V6(6, "V6 hybrid");
 }
 
 /**

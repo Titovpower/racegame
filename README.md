@@ -20,9 +20,9 @@ after real cars (proportions from published dimensions, brand names only, no log
 | Car | Power | Weight | 0-100 km/h | Top speed | Drive |
 |---|---|---|---|---|---|
 | Lamborghini Huracán EVO | 639 hp | 1550 kg | 2.9 s | 325 km/h | AWD |
-| Porsche 911 GT3 | 510 hp | 1435 kg | 3.4 s | 318 km/h | RWD |
+| Porsche 911 GT3 RS | 525 hp | 1450 kg | 3.2 s | 296 km/h | RWD |
 | BMW M4 Competition | 530 hp | 1775 kg | 3.5 s | 290 km/h | AWD |
-| Mercedes-AMG GT R | 584 hp | 1630 kg | 3.6 s | 318 km/h | RWD |
+| Mercedes-AMG ONE | 1063 hp | 1695 kg | 2.9 s | 352 km/h | AWD |
 | Audi R8 V10 performance | 620 hp | 1595 kg | 3.1 s | 331 km/h | AWD |
 | Aston Martin Vantage | 665 hp | 1605 kg | 3.5 s | 325 km/h | RWD |
 
@@ -59,7 +59,7 @@ The HUD shows speed, the current ground type, position, lap and lap times.
 ## Engine sound
 
 Each car has its engine layout (Lamborghini and Audi V10, Porsche flat-six, BMW inline-six,
-Mercedes-AMG and Aston Martin V8), its redline and number of gears. An automatic gearbox shifts
+Mercedes-AMG ONE hybrid V6 revving to 11,000 rpm, Aston Martin V8), its redline and number of gears. An automatic gearbox shifts
 up near the redline and down as you slow; the HUD shows a rev bar, rpm and gear. The sound is
 synthesized live from engine speed, throttle and layout (no recordings): the firing frequency and
 its harmonics give the pitch, a V8 gets its uneven-firing burble, throttle adds roar, and shifts
