@@ -76,7 +76,7 @@ async function main() {
   view.setMultiSampleAntiAliasingOptions({enabled: true, sampleCount: 4});
 
   const renderer = engine.createRenderer(), swap = engine.createSwapChain();
-  for (let k = 0; k < 4; k++) {
+  for (let k = 0; k < 24; k++) {
     await new Promise(r => requestAnimationFrame(r));
     if (renderer.beginFrame(swap)) { renderer.renderView(view); renderer.endFrame(); }
     engine.execute();
@@ -128,6 +128,13 @@ function overlay(frame) {
   const tw = g.measureText(frame.surface).width + 20 * d, top = 16*d + 40*d + 10*d;
   g.beginPath(); g.roundRect(16*d, top, tw, 15*d + 12*d, 8*d); g.fill();
   g.fillStyle = 'white'; g.fillText(frame.surface, 26*d, top + 15*d + 3*d);
+  // Rev bar, rpm and gear.
+  const bt = top + 15*d + 12*d + 10*d, bw = 150*d, bh = 8*d, fr = Math.min(1, frame.rpm / frame.redline);
+  g.fillStyle = 'rgba(0,0,0,0.43)'; g.beginPath(); g.roundRect(16*d, bt, bw, bh, bh/2); g.fill();
+  g.fillStyle = fr > 0.92 ? 'rgb(229,57,53)' : fr > 0.75 ? 'rgb(255,179,0)' : 'rgb(250,250,250)';
+  g.beginPath(); g.roundRect(16*d, bt, bw * fr, bh, bh/2); g.fill();
+  g.fillStyle = 'white'; g.fillText(String(frame.gear), 16*d + bw + 8*d, bt + bh + 2*d);
+  g.font = `bold ${12*d}px sans-serif`; g.fillText(`${Math.round(frame.rpm / 10) * 10} rpm`, 16*d, bt + bh + 16*d);
   // Position and lap, top right.
   g.textAlign = 'right'; g.shadowBlur = 4; g.shadowOffsetY = 2;
   g.font = `italic bold ${40*d}px sans-serif`; g.fillText(`P${frame.position}/${frame.standings.length}`, W - 16*d, 16*d + 40*d);

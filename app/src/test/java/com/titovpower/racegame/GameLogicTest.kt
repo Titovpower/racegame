@@ -273,4 +273,33 @@ class GameLogicTest {
         }
         assertTrue(zeroCrossings(6000f) > zeroCrossings(1500f) * 2)
     }
+
+    @Test
+    fun glbAssetsAreWellFormed() {
+        val b = MeshBuilder()
+        b.box(0f, 1f, 0f, 1f, 1f, 1f, Rgb(1f, 0f, 0f))
+        val glb = Glb.write(listOf(GlbPart("box", b.toArray()), GlbPart("ground", b.toArray(), Surfacing.GRASS)))
+        val buf = java.nio.ByteBuffer.wrap(glb).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        assertEquals(0x46546C67, buf.getInt(0)) // "glTF"
+        assertEquals(glb.size, buf.getInt(8))
+        val jsonLength = buf.getInt(12)
+        val json = String(glb, 20, jsonLength)
+        assertTrue(json.contains("\"name\":\"box\"") && json.contains("\"TEXCOORD_0\""))
+        // 36 indices into far fewer shared vertices (24 corners+normals, give or take rounding).
+        val vertices = Regex("\"count\":(\\d+),\"type\":\"VEC3\"").find(json)!!.groupValues[1].toInt()
+        assertTrue("$vertices vertices", vertices in 24..28)
+        assertTrue(json.contains("\"count\":36,\"type\":\"SCALAR\""))
+        val binLength = buf.getInt(20 + jsonLength)
+        assertEquals(glb.size, 20 + jsonLength + 8 + binLength)
+    }
+
+    @Test
+    fun skyLightIsBrighterFromAbove() {
+        val sh = SkyEnvironment.irradianceSh()
+        // Irradiance up (y = 1) vs. down: band 1 index 1 is the y term.
+        // Filament's polynomial form at n = (0, +-1, 0): sh0 +- sh1 - sh6 - sh8 (red channel).
+        val up = sh[0] + sh[3] - sh[18] - sh[24]
+        val down = sh[0] - sh[3] - sh[18] - sh[24]
+        assertTrue("up=$up down=$down", up > down && down > 0f)
+    }
 }

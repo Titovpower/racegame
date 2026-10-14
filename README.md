@@ -9,7 +9,7 @@ track through grass, woods and hills, seen from a chase camera behind the car.
 ![YOU WIN after 5 laps](docs/win.png)
 ![The six cars](docs/cars.png)
 
-<sub>Screenshots are rendered from the game's own meshes and shader in headless Chromium (WebGL),
+<sub>Screenshots are rendered from the game's own assets with Filament's WebAssembly build in headless Chromium,
 see `tools/preview`. The steering wheel and HUD in them are an approximation of the Android overlay.</sub>
 
 ## Cars
@@ -56,24 +56,60 @@ and top speed drops below ~110 km/h (`Surface.STREET` / `Surface.GRASS` in `CarP
 On asphalt a car stops from 100 km/h in about 30 m.
 The HUD shows speed, the current ground type, position, lap and lap times.
 
+## Engine sound
+
+Each car has its engine layout (Lamborghini and Audi V10, Porsche flat-six, BMW inline-six,
+Mercedes-AMG and Aston Martin V8), its redline and number of gears. An automatic gearbox shifts
+up near the redline and down as you slow; the HUD shows a rev bar, rpm and gear. The sound is
+synthesized live from engine speed, throttle and layout (no recordings): the firing frequency and
+its harmonics give the pitch, a V8 gets its uneven-firing burble, throttle adds roar, and shifts
+cut in briefly. `gradle sound` in `tools/preview` renders a full-throttle run of each car to WAV.
+
+## Graphics
+
+Rendering uses [Filament](https://github.com/google/filament), Google's physically based
+rendering engine: PBR materials (clear-coated paint, glass, chrome, rubber), a sun with cascaded
+soft shadows, an HDR sky that lights the scene and reflects in the paint, ambient occlusion,
+bloom, distance fog, 4x MSAA and filmic tone mapping. The world and cars are still generated in
+code, then handed to Filament as glTF with tiling grass and asphalt textures.
+
+### Real car models
+
+The cars are procedural look-alikes. Real manufacturer models can't be shipped in this repo:
+the ones you find online (Sketchfab, game rips) are almost always under licenses that forbid
+redistribution, and brand designs are protected. If you have a model you're allowed to use,
+put it in the app as glTF binary and it replaces the generated body:
+
+| File | Replaces |
+|---|---|
+| `app/src/main/assets/models/cars/lambo.glb` | Lamborghini |
+| `app/src/main/assets/models/cars/911.glb` | Porsche |
+| `app/src/main/assets/models/cars/m4.glb` | BMW |
+| `app/src/main/assets/models/cars/amggt.glb` | Mercedes-AMG |
+| `app/src/main/assets/models/cars/r8.glb` | Audi |
+| `app/src/main/assets/models/cars/vantage.glb` | Aston Martin |
+
+The model should be in meters, nose towards +Z, Y up, origin on the ground under the car's
+center. It brings its own wheels (the generated ones are hidden), and every material with
+"paint" in its name gets the driver's color.
+
 ## Tech
 
-Plain Kotlin with OpenGL ES 2.0 (`GLSurfaceView`), no game engine and no third-party
-libraries. All geometry (terrain, track, trees, grandstand, car) is generated in code.
-Rendering: real-time sun shadows for the cars (a depth map packed into an RGBA texture,
-bilinear-filtered), per-pixel lighting in linear space with a filmic (ACES) tone curve,
-hemisphere ambient, specular highlights and Fresnel sky reflections on paint and glass,
-procedural grass and asphalt detail, a procedural sky with sun and clouds, and distance fog.
+Plain Kotlin, Filament for rendering, no game engine. All geometry (terrain, track, trees,
+grandstand, cars) is generated in code.
 
 | File | What it does |
 |---|---|
-| `MainActivity.kt` | Fullscreen landscape activity, GL view + control overlay |
-| `ControlOverlayView.kt` | Steering wheel touch control and HUD |
-| `Scene.kt` | Chase camera and the per-frame draw list (API independent) |
-| `GameRenderer.kt` | GL thread: simulation loop and OpenGL drawing |
-| `ShaderSource.kt` | GLSL scene shader and shadow-map shader |
+| `MainActivity.kt` | Fullscreen landscape activity: Filament surface + control overlay |
+| `ControlOverlayView.kt` | Steering wheel touch control, car picker and HUD |
+| `FilamentRenderer.kt` | Filament setup (lights, sky, post-processing), loads the glTF assets, frame loop |
+| `GameLoop.kt` | Steps the simulation each frame and publishes HUD values |
+| `Scene.kt` | Assets, chase camera and per-frame car/wheel transforms (engine independent) |
+| `Glb.kt` | Writes the procedural meshes as glTF with PBR materials and detail textures |
+| `SkyEnvironment.kt` | Procedural HDR sky: skybox, reflections and diffuse light |
 | `GameState.kt` | Race simulation: car choice, AI drivers, grid and countdown, collisions, laps, ranking |
-| `CarPhysics.kt` | Real car specs, vehicle dynamics and street/grass parameters |
+| `CarPhysics.kt` | Real car specs, vehicle dynamics, gearbox, street/grass parameters |
+| `EngineSound.kt` | Engine sound synthesis and audio streaming |
 | `World.kt`, `Track.kt` | Track shape, hills, trees, bushes, rocks, grandstand |
 | `CarModel.kt` | The six car styles: lofted bodies with wheel arches, grilles, lights, wings, exhausts |
 | `SceneMeshes.kt`, `MeshBuilder.kt` | Procedural world meshes and mesh helpers |
