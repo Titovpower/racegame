@@ -46,10 +46,10 @@ class CarStyle(
     val cabinTop: Float = 0.6f,
 ) {
     enum class Grille { LAMBO, PORSCHE, KIDNEY, PANAMERICANA, SINGLEFRAME, ASTON }
-    enum class Headlights { Y_SHAPE, ROUND, ANGULAR, SLIM }
+    enum class Headlights { Y_SHAPE, ROUND, ANGULAR, SLIM, SWEPT }
     enum class Wing { LIP, SWAN_NECK, FIXED, NONE }
     enum class Exhaust { CENTER_HIGH, CENTER_PAIR, QUAD, OVAL_PAIR }
-    enum class Taillights { Y_SHAPE, FULL_BAR, L_SHAPE, SLIM_PAIR }
+    enum class Taillights { Y_SHAPE, FULL_BAR, L_SHAPE, SLIM_PAIR, BLADE }
 
     val wheelX get() = halfWidth - 0.16f
     val front get() = length / 2f
@@ -122,11 +122,13 @@ object CarModel {
     )
     val ASTON = CarStyle(
         "vantage", 4.50f, 0.99f, 1.38f, -1.32f, 0.30f, 0.44f,
-        listOf(2.25f to 0.52f, 2.1f to 0.64f, 1.4f to 0.8f, 0.4f to 0.92f, -0.25f to 0.92f, -1.0f to 0.93f, -1.8f to 0.95f, -2.15f to 1.0f, -2.25f to 0.9f),
-        windshieldZ = 0.4f, roofFrontZ = -0.25f, roofRearZ = -0.9f, rearGlassZ = -1.8f, roofY = 1.27f,
-        grille = CarStyle.Grille.ASTON, headlights = CarStyle.Headlights.SLIM, wing = CarStyle.Wing.NONE,
-        exhaust = CarStyle.Exhaust.QUAD, taillights = CarStyle.Taillights.FULL_BAR,
-        hoodDip = 0.04f, hipRise = 0.06f, frontWidth = 0.95f, cabinBase = 0.82f, cabinTop = 0.58f,
+        // From reference photos: long hood between raised fenders, cabin set back and narrow over
+        // broad rear haunches, fastback glass ending in a ducktail.
+        listOf(2.25f to 0.6f, 2.12f to 0.68f, 1.5f to 0.8f, 0.35f to 0.9f, -0.25f to 0.92f, -1.0f to 0.94f, -1.75f to 0.97f, -2.1f to 1.01f, -2.2f to 1.0f, -2.25f to 0.86f),
+        windshieldZ = 0.3f, roofFrontZ = -0.35f, roofRearZ = -0.9f, rearGlassZ = -1.75f, roofY = 1.27f,
+        grille = CarStyle.Grille.ASTON, headlights = CarStyle.Headlights.SWEPT, wing = CarStyle.Wing.NONE,
+        exhaust = CarStyle.Exhaust.QUAD, taillights = CarStyle.Taillights.BLADE,
+        hoodDip = 0.06f, hipRise = 0.1f, frontWidth = 0.92f, cabinBase = 0.74f, cabinTop = 0.52f,
     )
 
     fun styleFor(spec: CarSpec): CarStyle = when (spec) {
@@ -246,6 +248,7 @@ object CarModel {
         wing(b, st, paint)
         exhaust(b, st)
         tailHousings(b, st)
+        if (st.grille == CarStyle.Grille.ASTON) astonDetails(b, st)
         // Side mirrors on short stalks at the base of the A-pillars.
         for (side in floatArrayOf(-1f, 1f)) {
             val z = st.windshieldZ - 0.18f
@@ -282,6 +285,34 @@ object CarModel {
         b.gloss = 0f
         return b.toArray()
     }
+
+    /** Vantage details from the reference photos: hood vents, fender gills, the big rear diffuser and corner vents. */
+    private fun astonDetails(b: MeshBuilder, st: CarStyle) {
+        val hw = st.halfWidth
+        b.gloss = 0.2f
+        for (side in floatArrayOf(-1f, 1f)) {
+            // Two vents on the hood ahead of the windshield.
+            val zv = st.windshieldZ + 0.45f
+            b.orientedBox(V3(side * 0.3f, st.topY(zv) + 0.005f, zv), V3(0.12f, 0f, side * 0.05f), V3(0f, 0.008f, 0f), V3(0f, 0f, 0.035f), TRIM)
+            // Gill behind the front wheel.
+            val zg = st.frontAxle - ARCH_RADIUS - 0.28f
+            b.orientedBox(V3(side * (hw - 0.005f), 0.6f, zg), V3(0.012f, 0f, 0f), V3(0f, 0.018f, 0.004f), V3(0f, 0.01f, 0.18f), TRIM)
+            // Tall angled vents at the rear bumper's corners.
+            val zr = st.rear + 0.04f
+            plateZ(b, listOf(side * (hw - 0.2f) to 0.4f, side * (hw - 0.08f) to 0.42f, side * (hw - 0.05f) to 0.64f, side * (hw - 0.14f) to 0.58f), zr - 0.06f, zr, TRIM)
+        }
+        // Diffuser: a wide black band framed by a bright strip, with the quad exhausts in it.
+        val zr = st.rear - 0.005f
+        b.gloss = 0.3f
+        plateZ(b, listOf(-(hw - 0.2f) to 0.24f, hw - 0.2f to 0.24f, hw - 0.16f to 0.46f, 0.3f to 0.38f, -0.3f to 0.38f, -(hw - 0.16f) to 0.46f), zr - 0.1f, zr - 0.035f, TRIM)
+        b.gloss = 0.9f
+        for (side in floatArrayOf(-1f, 1f)) {
+            b.orientedBox(V3(side * (hw * 0.5f - 0.05f), 0.43f, zr - 0.03f), V3(hw * 0.36f, side * 0.04f, 0f), V3(0f, 0.01f, 0f), V3(0f, 0f, 0.012f), CHROME.scale(0.8f))
+        }
+    }
+
+    /** [plate] for faces pointing backwards (polygons given as seen from behind). */
+    private fun plateZ(b: MeshBuilder, poly: List<Pair<Float, Float>>, z0: Float, z1: Float, color: Rgb) = plate(b, poly, z0, z1, color)
 
     /** Dark liners inside the wheel arches, so you can't see through the body above the tires. */
     private fun wheelWells(b: MeshBuilder, st: CarStyle) {
@@ -413,12 +444,19 @@ object CarModel {
                 }
             }
             CarStyle.Grille.ASTON -> {
-                // The wide, low grille mouth that dominates the Vantage's face, with horizontal vanes.
-                plate(b, listOf(-0.5f to 0.27f, 0.5f to 0.27f, 0.6f to 0.42f, 0.48f to 0.56f, -0.48f to 0.56f, -0.6f to 0.42f), zf - 0.16f, zf - 0.005f, TRIM)
+                // The huge grille: widest near the bottom, narrowing to the top, with horizontal slats,
+                // and tall dark intakes at the bumper corners.
+                val outline = listOf(-0.5f to 0.26f, 0.5f to 0.26f, 0.64f to 0.36f, 0.56f to 0.52f, 0.36f to 0.6f, -0.36f to 0.6f, -0.56f to 0.52f, -0.64f to 0.36f)
+                plate(b, outline, zf - 0.18f, zf - 0.005f, TRIM)
                 b.gloss = 0.9f
-                for (k in 0..4) {
-                    val y = 0.32f + k * 0.05f
-                    b.orientedBox(V3(0f, y, zf), V3(0.5f - abs(k - 2) * 0.03f, 0f, 0f), V3(0f, 0.005f, 0f), V3(0f, 0f, 0.01f), CHROME.scale(0.5f))
+                for (k in 0..6) {
+                    val y = 0.3f + k * 0.045f
+                    val w = if (y < 0.36f) 0.5f + (y - 0.26f) * 1.4f else 0.64f - (y - 0.36f) * 1.1f
+                    b.orientedBox(V3(0f, y, zf + 0.002f), V3(w - 0.04f, 0f, 0f), V3(0f, 0.005f, 0f), V3(0f, 0f, 0.012f), CHROME.scale(0.8f))
+                }
+                b.gloss = 0.3f
+                for (side in floatArrayOf(-1f, 1f)) {
+                    plate(b, listOf(side * 0.72f to 0.28f, side * 0.8f to 0.3f, side * 0.84f to 0.56f, side * 0.76f to 0.5f), zf - 0.3f, zf - 0.1f, TRIM)
                 }
             }
         }
@@ -451,6 +489,16 @@ object CarModel {
                     b.gloss = 1f
                     b.orientedBox(V3(side * (hw - 0.3f), y, z), V3(0.2f, 0f, -side * 0.03f), V3(0f, 0.05f, -0.01f), V3(0f, 0f, 0.06f), LENS)
                     b.orientedBox(V3(side * (hw - 0.3f), y - 0.035f, z + 0.05f), V3(0.18f, 0f, 0f), V3(0f, 0.008f, 0f), V3(0f, 0f, 0.01f), DRL)
+                }
+                CarStyle.Headlights.SWEPT -> {
+                    // Slim lamps set into the fender tops, sweeping up and back from the grille's corners.
+                    val z = st.front - 0.36f
+                    val y = st.topY(z) + st.hoodDip - 0.05f
+                    val dir = V3(side * 0.12f, 0.06f, -0.99f).normalized()
+                    val across = V3(1f, -side * 0.35f, 0f).normalized()
+                    b.gloss = 1f
+                    b.orientedBox(V3(side * (hw - 0.27f), y, z), dir * 0.2f, across * 0.07f * side, V3(0f, 1f, 0.15f).normalized() * 0.02f, LENS)
+                    b.orientedBox(V3(side * (hw - 0.22f), y + 0.012f, z - 0.02f), dir * 0.17f, across * 0.01f * side, V3(0f, 1f, 0.15f).normalized() * 0.022f, DRL)
                 }
                 CarStyle.Headlights.SLIM -> {
                     val z = st.front - 0.24f
@@ -513,7 +561,7 @@ object CarModel {
         when (st.exhaust) {
             CarStyle.Exhaust.CENTER_HIGH -> { pipe(-0.09f, 0.62f, 0.05f); pipe(0.09f, 0.62f, 0.05f) }
             CarStyle.Exhaust.CENTER_PAIR -> { pipe(-0.1f, 0.36f, 0.055f); pipe(0.1f, 0.36f, 0.055f) }
-            CarStyle.Exhaust.QUAD -> for (x in floatArrayOf(-0.62f, -0.48f, 0.48f, 0.62f)) pipe(x, 0.35f, 0.045f)
+            CarStyle.Exhaust.QUAD -> for (x in floatArrayOf(-0.62f, -0.48f, 0.48f, 0.62f)) pipe(x, 0.33f, 0.05f, 0.06f)
             CarStyle.Exhaust.OVAL_PAIR -> { pipe(-0.55f, 0.36f, 0.04f, 0.09f); pipe(0.55f, 0.36f, 0.04f, 0.09f) }
         }
     }
@@ -558,6 +606,13 @@ object CarModel {
                 val cx = side * (hw - 0.3f)
                 b.orientedBox(V3(cx, y, z), V3(0.2f, 0f, 0f), V3(0f, 0.035f, 0f), V3(0f, 0f, 0.02f), red)
                 b.orientedBox(V3(cx + side * 0.17f, y - 0.06f, z), V3(0.03f, 0f, 0f), V3(0f, 0.05f, 0f), V3(0f, 0f, 0.02f), red)
+            }
+            CarStyle.Taillights.BLADE -> {
+                // A thin blade across the ducktail, widening and dipping into the lamps at the corners.
+                b.orientedBox(V3(0f, y + 0.03f, z), V3(hw - 0.5f, 0f, 0f), V3(0f, 0.012f, 0f), V3(0f, 0f, 0.02f), red)
+                for (side in floatArrayOf(-1f, 1f)) {
+                    b.orientedBox(V3(side * (hw - 0.34f), y + 0.01f, z + 0.01f), V3(0.13f, -side * 0.03f, 0f), V3(0f, 0.028f, 0f), V3(0f, 0f, 0.02f), red)
+                }
             }
             CarStyle.Taillights.SLIM_PAIR -> for (side in floatArrayOf(-1f, 1f)) {
                 b.orientedBox(V3(side * (hw - 0.3f), y, z), V3(0.22f, 0f, 0f), V3(0f, 0.025f, 0f), V3(0f, 0f, 0.02f), red)
