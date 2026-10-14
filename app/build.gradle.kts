@@ -11,8 +11,20 @@ android {
         applicationId = "com.titovpower.racegame"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1"
+        // CI build number, so each new APK installs as an update over the previous one.
+        versionCode = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
+        versionName = "0.$versionCode"
+    }
+
+    signingConfigs {
+        // A fixed debug key checked into the repo: every CI build is signed with the same key,
+        // so Android accepts it as an update. (CI runners otherwise generate a new key each run.)
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {
