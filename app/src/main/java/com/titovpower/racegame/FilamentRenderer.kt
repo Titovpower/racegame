@@ -43,6 +43,9 @@ class FilamentRenderer(
 ) : Choreographer.FrameCallback {
 
     companion object {
+        /** PackageManager feature version for Vulkan 1.1. */
+        private const val VULKAN_1_1 = 0x401000
+
         init {
             Filament.init()
             Gltfio.init()
@@ -360,7 +363,6 @@ class FilamentRenderer(
     }
 
     private val BRAKE_GLOW = 40f
-    private val VULKAN_1_1 = 0x401000
 }
 
 /** Optional glTF models dropped into the app's assets (see README), used instead of the generated ones. */
