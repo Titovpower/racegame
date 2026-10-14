@@ -47,7 +47,8 @@ class FilamentRenderer(
         }
     }
 
-    private val engine = Engine.create()
+    // Draw through OpenGL ES 3 explicitly (Filament would otherwise pick its default backend).
+    private val engine = Engine.create(Engine.Backend.OPENGL)
     private val renderer: Renderer = engine.createRenderer()
     private val scene = engine.createScene()
     private val view: View = engine.createView()

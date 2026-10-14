@@ -68,7 +68,8 @@ cut in briefly. `gradle sound` in `tools/preview` renders a full-throttle run of
 ## Graphics
 
 Rendering uses [Filament](https://github.com/google/filament), Google's physically based
-rendering engine: PBR materials (clear-coated paint, glass, chrome, rubber), a sun with cascaded
+rendering engine, running on its OpenGL ES 3 backend:
+PBR materials (clear-coated paint, glass, chrome, rubber), a sun with cascaded
 soft shadows, an HDR sky that lights the scene and reflects in the paint, ambient occlusion,
 bloom, distance fog, 4x MSAA and filmic tone mapping. The world and cars are still generated in
 code, then handed to Filament as glTF with tiling grass and asphalt textures.
