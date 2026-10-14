@@ -1,0 +1,78 @@
+<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;background:#000">
+<div style="position:relative;width:1280px;height:640px">
+<canvas id="c" width="1280" height="640" style="position:absolute"></canvas>
+<canvas id="o" width="1280" height="640" style="position:absolute"></canvas>
+</div>
+<script>
+async function main() {
+  const q = new URLSearchParams(location.search);
+  const dir = q.get('dir'), hud = q.get('hud') !== '0';
+  const frame = await (await fetch(dir + '/frame.json')).json();
+  const vs = await (await fetch(dir + '/shader.vert')).text();
+  const fs = await (await fetch(dir + '/shader.frag')).text();
+  const c = document.getElementById('c');
+  const gl = c.getContext('webgl', {antialias: true, depth: true, preserveDrawingBuffer: true});
+  function sh(type, src) { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+  const prog = gl.createProgram(); gl.attachShader(prog, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(prog); if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  gl.useProgram(prog);
+  const U = n => gl.getUniformLocation(prog, n);
+  const aPos = gl.getAttribLocation(prog, 'aPos'), aNormal = gl.getAttribLocation(prog, 'aNormal'), aColor = gl.getAttribLocation(prog, 'aColor');
+  const bufs = {};
+  for (const d of frame.draws) if (!bufs[d.mesh]) {
+    const data = new Float32Array(await (await fetch(dir + '/' + d.mesh + '.bin')).arrayBuffer());
+    const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+    bufs[d.mesh] = {b, n: data.length / 10};
+  }
+  const h = frame.horizon; gl.clearColor(h[0], h[1], h[2], 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  gl.depthFunc(gl.LEQUAL);
+  gl.uniform3fv(U('uCamPos'), frame.cam); gl.uniform3fv(U('uSunDir'), frame.sun); gl.uniform3fv(U('uFogColor'), h);
+  gl.uniform3fv(U('uSkyHorizon'), h); gl.uniform3fv(U('uSkyZenith'), frame.zenith); gl.uniform3fv(U('uGroundBounce'), frame.bounce);
+  gl.uniform2fv(U('uFogRange'), frame.fog);
+  function mul(a, b) { const o = new Float32Array(16); for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) { let s = 0; for (let k = 0; k < 4; k++) s += a[k*4+j] * b[i*4+k]; o[i*4+j] = s; } return o; }
+  for (const d of frame.draws) {
+    d.depthTest ? gl.enable(gl.DEPTH_TEST) : gl.disable(gl.DEPTH_TEST);
+    gl.depthMask(d.depthWrite);
+    if (d.blend) { gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); } else gl.disable(gl.BLEND);
+    if (d.polygonOffset) { gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(-2, -4); } else gl.disable(gl.POLYGON_OFFSET_FILL);
+    gl.uniform1f(U('uMode'), d.mode); gl.uniform1f(U('uAlpha'), d.alpha); gl.uniform3fv(U('uTint'), d.tint);
+    gl.uniform1f(U('uDetail'), d.detail); gl.uniform1f(U('uDetailScale'), d.detailScale);
+    gl.uniformMatrix4fv(U('uMvp'), false, mul(frame.viewProj, d.model)); gl.uniformMatrix4fv(U('uModel'), false, new Float32Array(d.model));
+    const m = bufs[d.mesh]; gl.bindBuffer(gl.ARRAY_BUFFER, m.b);
+    gl.enableVertexAttribArray(aPos); gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 40, 0);
+    gl.enableVertexAttribArray(aNormal); gl.vertexAttribPointer(aNormal, 3, gl.FLOAT, false, 40, 12);
+    gl.enableVertexAttribArray(aColor); gl.vertexAttribPointer(aColor, 4, gl.FLOAT, false, 40, 24);
+    gl.drawArrays(gl.TRIANGLES, 0, m.n);
+  }
+  if (hud) overlay(frame);
+  document.title = 'done';
+}
+// Approximation of ControlOverlayView (Android Canvas) for the preview.
+function overlay(frame) {
+  const g = document.getElementById('o').getContext('2d'), W = 1280, H = 640, d = 2;
+  const r = Math.min(H * 0.17, W * 0.13), cx = W / 2, cy = H - r - 14 * d;
+  g.textAlign = 'center'; g.font = `bold ${12*d}px sans-serif`; g.fillStyle = 'rgba(255,255,255,0.8)';
+  g.shadowColor = 'black'; g.shadowBlur = 3;
+  g.fillText('▲ GAS', cx, cy - r * 1.28); g.fillText('▼ BRAKE', cx, cy + r * 1.05 + 12 * d);
+  g.fillText('◀', cx - r * 1.35, cy + 5 * d); g.fillText('▶', cx + r * 1.35, cy + 5 * d);
+  g.shadowBlur = 0;
+  const ring = r * 0.88;
+  g.lineWidth = r * 0.16; g.strokeStyle = 'rgba(30,30,34,0.9)'; g.beginPath(); g.arc(cx, cy, ring, 0, 7); g.stroke();
+  g.lineWidth = r * 0.04; g.strokeStyle = 'rgba(90,90,98,0.8)'; g.beginPath(); g.arc(cx, cy, ring + r * 0.056, 0, 7); g.stroke();
+  g.lineWidth = r * 0.13; g.lineCap = 'round'; g.strokeStyle = 'rgba(55,55,60,0.9)';
+  g.beginPath(); g.moveTo(cx - ring, cy); g.lineTo(cx + ring, cy); g.moveTo(cx, cy); g.lineTo(cx, cy + ring); g.stroke();
+  g.fillStyle = 'rgba(40,40,44,0.94)'; g.beginPath(); g.arc(cx, cy, r * 0.27, 0, 7); g.fill();
+  g.fillStyle = 'rgb(229,57,53)'; g.beginPath(); g.arc(cx, cy, r * 0.1, 0, 7); g.fill();
+  g.lineCap = 'butt'; g.lineWidth = r * 0.16; g.strokeStyle = 'rgb(229,57,53)'; g.beginPath(); g.arc(cx, cy, ring, (260) * Math.PI / 180, 280 * Math.PI / 180); g.stroke();
+  g.textAlign = 'left'; g.shadowBlur = 4; g.shadowOffsetY = 2; g.fillStyle = 'white';
+  g.font = `italic bold ${40*d}px sans-serif`; const sp = String(Math.floor(frame.speed)); g.fillText(sp, 16*d, 16*d + 40*d);
+  const w = g.measureText(sp).width; g.font = `bold ${15*d}px sans-serif`; g.fillText('km/h', 16*d + w + 6*d, 16*d + 40*d);
+  g.shadowBlur = 0; g.shadowOffsetY = 0;
+  g.fillStyle = frame.surface === 'GRASS' ? 'rgba(56,142,60,0.86)' : 'rgba(66,66,72,0.86)';
+  const tw = g.measureText(frame.surface).width + 20 * d, top = 16*d + 40*d + 10*d;
+  g.beginPath(); g.roundRect(16*d, top, tw, 15*d + 12*d, 8*d); g.fill();
+  g.fillStyle = 'white'; g.fillText(frame.surface, 26*d, top + 15*d + 3*d);
+}
+main().catch(e => { document.title = 'error: ' + e.message; });
+</script></body></html>

@@ -37,8 +37,8 @@ class GameState(val world: World) {
         val oldZ = car.z
         car.update(dt, steer, throttle, brake, surface)
 
-        // Trees are solid.
-        for (t in world.solidTrees) {
+        // Trees and the grandstand are solid.
+        for (t in world.obstacles) {
             val dx = car.x - t.x
             val dz = car.z - t.z
             val minDist = t.radius + CAR_RADIUS

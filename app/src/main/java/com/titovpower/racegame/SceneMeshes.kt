@@ -3,245 +3,253 @@ package com.titovpower.racegame
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlin.random.Random
 
-/** Builds all procedural geometry for the scene (CPU side only). */
+/** Builds the procedural geometry of the world (CPU side only). The car is in [CarModel]. */
 object SceneMeshes {
-    private val GRASS_A = Rgb.hex(0x4C8A2E)
-    private val GRASS_B = Rgb.hex(0x6FA83A)
-    private val GRASS_DRY = Rgb.hex(0x8E9A4A)
-    private val ROCK = Rgb.hex(0x7D7A73)
-    private val ASPHALT = Rgb.hex(0x45464A)
+    private val GRASS_MOWN = Rgb.hex(0x5B8F3A)
+    private val GRASS_LUSH = Rgb.hex(0x4B7F2F)
+    private val GRASS_WILD = Rgb.hex(0x748C3E)
+    private val GRASS_DRY = Rgb.hex(0x9C9A55)
+    private val ROCK = Rgb.hex(0x857F76)
+    private val SNOW = Rgb.hex(0xF2F5F8)
+    private val ASPHALT = Rgb.hex(0x3E3F43)
     private val CURB_RED = Rgb.hex(0xC62828)
     private val CURB_WHITE = Rgb.hex(0xEEEEEE)
-    private val LINE = Rgb.hex(0xF2F2F2)
-    private val TRUNK = Rgb.hex(0x6B4A2B)
-    private val PINE = Rgb.hex(0x2F6B34)
-    private val LEAF = Rgb.hex(0x4E8F2F)
+    private val LINE = Rgb.hex(0xEDEDED)
+    private val TRUNK = Rgb.hex(0x5D4128)
+    private val PINE = Rgb.hex(0x2C5E2E)
+    private val LEAF = Rgb.hex(0x4A8A2C)
+    private val LEAF_AUTUMN = Rgb.hex(0x8E9A2A)
+    private val BUSH = Rgb.hex(0x3F7A2A)
 
-    val SKY_ZENITH = Rgb.hex(0x3C78C8)
-    val SKY_HORIZON = Rgb.hex(0xBFD8EC)
+    /** Unit-ish sphere around the camera; colored by the shader's sky mode. */
+    fun sky(): FloatArray {
+        val b = MeshBuilder()
+        b.blob(V3(0f, 0f, 0f), 1000f, 1000f, 1000f, 12, 24, Rgb(1f, 1f, 1f))
+        return b.toArray()
+    }
 
     fun ground(world: World): FloatArray {
-        val b = MeshBuilder(1 shl 20)
+        val b = MeshBuilder(1 shl 21)
         val ext = world.groundExtent
         val cells = 160
         val step = 2f * ext / cells
         val n = cells + 1
         val hs = FloatArray(n * n)
+        val ds = FloatArray(n * n)
         for (iz in 0 until n) for (ix in 0 until n) {
-            hs[iz * n + ix] = world.heightAt(-ext + ix * step, -ext + iz * step)
+            val x = -ext + ix * step
+            val z = -ext + iz * step
+            val d = world.track.nearest(x, z).distance
+            ds[iz * n + ix] = d
+            hs[iz * n + ix] = world.heightAt(x, z, d)
         }
-        fun p(ix: Int, iz: Int) = V3(-ext + ix * step, hs[iz * n + ix], -ext + iz * step)
+        fun h(ix: Int, iz: Int) = hs[iz.coerceIn(0, cells) * n + ix.coerceIn(0, cells)]
+        val pos = Array(n * n) { k -> V3(-ext + (k % n) * step, hs[k], -ext + (k / n) * step) }
+        // Smooth normals from the height field.
+        val nor = Array(n * n) { k ->
+            val ix = k % n
+            val iz = k / n
+            V3(-(h(ix + 1, iz) - h(ix - 1, iz)) / (2 * step), 1f, -(h(ix, iz + 1) - h(ix, iz - 1)) / (2 * step)).normalized()
+        }
+        val col = Array(n * n) { k ->
+            val p = pos[k]
+            val d = ds[k]
+            val noise = Noise.fbm(p.x * 0.03f, p.z * 0.03f)
+            // Mown grass near the track, lusher and wilder further out.
+            val near = clamp((d - 15f) / 40f, 0f, 1f)
+            var c = GRASS_MOWN.mix(GRASS_LUSH, noise).mix(GRASS_WILD.mix(GRASS_LUSH, noise), near)
+            c = c.mix(GRASS_DRY, clamp(Noise.value(p.x * 0.012f, p.z * 0.012f) - 0.5f, 0f, 1f) * 1.4f)
+            val steep = 1f - nor[k].y
+            if (p.y > 30f || steep > 0.25f) c = c.mix(ROCK, clamp(maxOf((p.y - 30f) / 50f, (steep - 0.25f) * 3f), 0f, 0.85f))
+            if (p.y > 105f) c = c.mix(SNOW, clamp((p.y - 105f) / 25f, 0f, 1f))
+            c
+        }
         for (iz in 0 until cells) for (ix in 0 until cells) {
-            val a = p(ix, iz); val bb = p(ix + 1, iz); val c = p(ix + 1, iz + 1); val d = p(ix, iz + 1)
-            val cx = a.x + step * 0.5f
-            val cz = a.z + step * 0.5f
-            val noise = Noise.fbm(cx * 0.03f, cz * 0.03f)
-            var color = GRASS_A.mix(GRASS_B, noise).mix(GRASS_DRY, clamp(Noise.value(cx * 0.01f, cz * 0.01f) - 0.55f, 0f, 1f) * 1.5f)
-            val h = (a.y + c.y) * 0.5f
-            if (h > 45f) color = color.mix(ROCK, clamp((h - 45f) / 40f, 0f, 0.85f))
-            if (h > 110f) color = color.mix(Rgb(0.95f, 0.96f, 0.98f), clamp((h - 110f) / 30f, 0f, 1f))
-            // Two triangles with independent normals so hills get faceted lighting.
-            val below = (a + c) * 0.5f - V3(0f, 1000f, 0f)
-            b.tri(a, bb, c, color, below)
-            b.tri(a, c, d, color.scale(0.96f), below)
+            val k00 = iz * n + ix
+            val k10 = k00 + 1
+            val k01 = k00 + n
+            val k11 = k01 + 1
+            for (k in intArrayOf(k00, k10, k11, k00, k11, k01)) b.vertex(pos[k], nor[k], col[k])
         }
         return b.toArray()
     }
 
     fun road(track: Track): FloatArray {
-        val b = MeshBuilder(1 shl 16)
+        val b = MeshBuilder(1 shl 17)
         val n = track.samples
         val hw = track.halfWidth
         val cw = track.curbWidth
         fun edge(i: Int, offset: Float, y: Float): V3 {
             val t = track.tangent(i)
             // Left of travel direction.
-            val nx = t.z
-            val nz = -t.x
-            return V3(track.xs[i] + nx * offset, y, track.zs[i] + nz * offset)
+            return V3(track.xs[i] + t.z * offset, y, track.zs[i] - t.x * offset)
         }
+        fun strip(i: Int, j: Int, from: Float, to: Float, y: Float, color: Rgb) =
+            b.flatQuad(edge(i, from, y), edge(i, to, y), edge(j, to, y), edge(j, from, y), color)
         for (i in 0 until n) {
             val j = (i + 1) % n
-            b.flatQuad(edge(i, -hw, 0.02f), edge(i, hw, 0.02f), edge(j, hw, 0.02f), edge(j, -hw, 0.02f), ASPHALT)
+            // Asphalt in lanes: slightly darker, rubbered-in racing line in the middle.
+            strip(i, j, -hw, -hw * 0.4f, 0.02f, ASPHALT)
+            strip(i, j, -hw * 0.4f, hw * 0.4f, 0.02f, ASPHALT.scale(0.9f))
+            strip(i, j, hw * 0.4f, hw, 0.02f, ASPHALT)
             val curb = if ((i / 3) % 2 == 0) CURB_RED else CURB_WHITE
-            b.flatQuad(edge(i, hw, 0.04f), edge(i, hw + cw, 0.04f), edge(j, hw + cw, 0.04f), edge(j, hw, 0.04f), curb)
-            b.flatQuad(edge(i, -hw - cw, 0.04f), edge(i, -hw, 0.04f), edge(j, -hw, 0.04f), edge(j, -hw - cw, 0.04f), curb)
+            strip(i, j, hw, hw + cw, 0.05f, curb)
+            strip(i, j, -hw - cw, -hw, 0.05f, curb)
             // Edge lines and a dashed center line.
-            b.flatQuad(edge(i, hw - 0.5f, 0.05f), edge(i, hw - 0.3f, 0.05f), edge(j, hw - 0.3f, 0.05f), edge(j, hw - 0.5f, 0.05f), LINE)
-            b.flatQuad(edge(i, -hw + 0.3f, 0.05f), edge(i, -hw + 0.5f, 0.05f), edge(j, -hw + 0.5f, 0.05f), edge(j, -hw + 0.3f, 0.05f), LINE)
-            if ((i / 2) % 3 == 0) {
-                b.flatQuad(edge(i, -0.15f, 0.05f), edge(i, 0.15f, 0.05f), edge(j, 0.15f, 0.05f), edge(j, -0.15f, 0.05f), LINE)
-            }
+            strip(i, j, hw - 0.5f, hw - 0.3f, 0.04f, LINE)
+            strip(i, j, -hw + 0.3f, -hw + 0.5f, 0.04f, LINE)
+            if ((i / 2) % 3 == 0) strip(i, j, -0.15f, 0.15f, 0.04f, LINE)
         }
         // Checkered start/finish line at sample 0.
-        val rows = 2
         val cols = 14
         val t = track.tangent(0)
         val left = V3(t.z, 0f, -t.x)
-        val origin = V3(track.xs[0], 0.06f, track.zs[0])
+        val origin = V3(track.xs[0], 0.05f, track.zs[0])
         val cell = 2f * hw / cols
-        for (r in 0 until rows) for (c in 0 until cols) {
+        for (r in 0 until 2) for (c in 0 until cols) {
             val o = origin + left * (-hw + c * cell) + t * (r * cell)
-            val color = if ((r + c) % 2 == 0) Rgb(0.05f, 0.05f, 0.05f) else Rgb(0.97f, 0.97f, 0.97f)
+            val color = if ((r + c) % 2 == 0) Rgb(0.06f, 0.06f, 0.06f) else Rgb(0.95f, 0.95f, 0.95f)
             b.flatQuad(o, o + left * cell, o + left * cell + t * cell, o + t * cell, color)
         }
         return b.toArray()
     }
 
-    /** Start/finish gantry spanning the track. */
-    fun gantry(track: Track): FloatArray {
-        val b = MeshBuilder()
+    /** Soft shadows under trees, bushes and the grandstand (unlit, alpha in the gloss channel). */
+    fun shadows(world: World): FloatArray {
+        val b = MeshBuilder(1 shl 18)
+        // Shadows lean away from the sun a little.
+        val sx = -Scene.SUN.x * 0.8f
+        val sz = -Scene.SUN.z * 0.8f
+        for (t in world.trees) {
+            val r = (if (t.pine) 2.8f else 3.4f) * t.scale
+            b.softDisc(t.x + sx * r, t.y + 0.07f, t.z + sz * r, r, r, 8, 0.42f)
+        }
+        for (bush in world.bushes) {
+            b.softDisc(bush.x + sx, 0.07f, bush.z + sz, bush.size * 1.4f, bush.size * 1.4f, 6, 0.35f)
+        }
+        val (gx, gz) = world.grandstandCenter()
+        val t = world.track.tangent(world.grandstandIndex)
+        val left = V3(t.z, 0f, -t.x)
+        val c = V3(gx, 0f, gz) + left * (world.grandstandDepth * 0.5f + 2f)
+        for (k in -3..3) {
+            val p = c + t * (k * world.grandstandLength / 7f)
+            b.softDisc(p.x, 0.07f, p.z, 6f, 6f, 12, 0.3f)
+        }
+        return b.toArray()
+    }
+
+    /** Start gantry and grandstand. */
+    fun props(world: World): FloatArray {
+        val b = MeshBuilder(1 shl 16)
+        val track = world.track
         val t = track.tangent(0)
         val left = V3(t.z, 0f, -t.x)
         val origin = V3(track.xs[0], 0f, track.zs[0])
         val span = track.halfWidth + track.curbWidth + 1.5f
-        val grey = Rgb.hex(0x9E9E9E)
+        val steel = Rgb.hex(0x9EA3A8)
+        b.gloss = 0.4f
         for (side in floatArrayOf(-span, span)) {
             val p = origin + left * side
-            b.box(p.x, 3.2f, p.z, 0.35f, 3.2f, 0.35f, grey)
+            b.orientedBox(V3(p.x, 3.4f, p.z), left * 0.3f, V3(0f, 3.4f, 0f), t * 0.3f, steel)
         }
-        // Beam: a hexahedron oriented along the "left" axis.
-        val a = origin + left * (-span - 0.4f)
-        val c = origin + left * (span + 0.4f)
-        val fw = t * 0.5f
-        val y0 = 6.0f
-        val y1 = 7.4f
-        fun at(p: V3, y: Float) = V3(p.x, y, p.z)
+        val beamCenter = V3(origin.x, 7.0f, origin.z)
+        b.gloss = 0.3f
+        b.orientedBox(beamCenter, left * (span + 0.4f), V3(0f, 0.75f, 0f), t * 0.45f, Rgb.hex(0xD32F2F))
+        // Checkered banner on the beam, both sides.
+        val cells = 16
+        for (c in 0 until cells) for (r in 0 until 2) {
+            val color = if ((c + r) % 2 == 0) Rgb(0.05f, 0.05f, 0.05f) else Rgb(0.95f, 0.95f, 0.95f)
+            val u = -span + (c + 0.5f) * (2 * span / cells)
+            for (face in floatArrayOf(-0.47f, 0.47f)) {
+                val p = beamCenter + left * u + t * face + V3(0f, -0.35f + r * 0.7f, 0f)
+                b.orientedBox(p, left * (span / cells), V3(0f, 0.35f, 0f), t * 0.01f, color)
+            }
+        }
+
+        // Grandstand: stepped concrete tiers with colorful seats under a roof.
+        b.gloss = 0f
+        val (gx, gz) = world.grandstandCenter()
+        val gt = track.tangent(world.grandstandIndex)
+        val gl = V3(gt.z, 0f, -gt.x)
+        val front = V3(gx, 0f, gz)
+        val half = world.grandstandLength / 2f
+        val depth = world.grandstandDepth
+        val tiers = 6
+        val concrete = Rgb.hex(0xB9B4AA)
+        val seatColors = listOf(Rgb.hex(0x1E88E5), Rgb.hex(0xFDD835), Rgb.hex(0xE53935), Rgb.hex(0xFAFAFA), Rgb.hex(0x43A047))
+        val rnd = Random(3)
+        for (k in 0 until tiers) {
+            val d = (k + 0.5f) * depth / tiers
+            val hgt = (k + 1) * 0.75f
+            val c = front + gl * d + V3(0f, hgt / 2f, 0f)
+            b.orientedBox(c, gt * half, V3(0f, hgt / 2f, 0f), gl * (depth / tiers / 2f), concrete)
+            // Seats (spectators from afar).
+            var s = -half + 0.5f
+            while (s < half - 0.4f) {
+                val seat = front + gl * (d - 0.2f) + gt * s + V3(0f, hgt + 0.25f, 0f)
+                b.orientedBox(seat, gt * 0.22f, V3(0f, 0.25f, 0f), gl * 0.18f, seatColors[rnd.nextInt(seatColors.size)])
+                s += 0.62f
+            }
+        }
+        // Back wall, posts and a sloped roof.
+        val wallC = front + gl * (depth + 0.15f) + V3(0f, 3.6f, 0f)
+        b.orientedBox(wallC, gt * half, V3(0f, 3.6f, 0f), gl * 0.15f, concrete.scale(0.9f))
+        b.gloss = 0.3f
+        for (k in 0..4) {
+            val p = front + gt * (-half + 1f + k * (2 * half - 2f) / 4f) + gl * 0.4f
+            b.orientedBox(p + V3(0f, 3.6f, 0f), gt * 0.12f, V3(0f, 3.6f, 0f), gl * 0.12f, steel)
+        }
+        val roofFront = front + V3(0f, 7.2f, 0f) + gl * -0.6f
+        val roofBack = front + V3(0f, 7.9f, 0f) + gl * (depth + 0.4f)
         b.hexahedron(
             arrayOf(
-                at(a - fw, y0), at(c - fw, y0), at(c + fw, y0), at(a + fw, y0),
-                at(a - fw, y1), at(c - fw, y1), at(c + fw, y1), at(a + fw, y1),
+                roofFront - gt * (half + 1f), roofFront + gt * (half + 1f), roofBack + gt * (half + 1f), roofBack - gt * (half + 1f),
+                roofFront - gt * (half + 1f) + V3(0f, 0.25f, 0f), roofFront + gt * (half + 1f) + V3(0f, 0.25f, 0f),
+                roofBack + gt * (half + 1f) + V3(0f, 0.25f, 0f), roofBack - gt * (half + 1f) + V3(0f, 0.25f, 0f),
             ),
-            Rgb.hex(0xD32F2F),
+            Rgb.hex(0xECEFF1),
         )
+        b.gloss = 0f
         return b.toArray()
     }
 
     fun vegetation(world: World): FloatArray {
-        val b = MeshBuilder(1 shl 19)
+        val b = MeshBuilder(1 shl 21)
         for (tr in world.trees) {
             val s = tr.scale
             val rot = (tr.x * 13.1f + tr.z * 7.7f) % 6.28f
             val tint = 0.85f + Noise.value(tr.x * 0.3f, tr.z * 0.3f) * 0.3f
             if (tr.pine) {
-                b.prism(tr.x, tr.y - 0.5f, tr.z, 0.35f * s, 2.5f * s, 5, TRUNK)
-                b.cone(tr.x, tr.y + 1.6f * s, tr.z, 2.6f * s, 4.5f * s, 7, PINE.scale(tint), rot)
-                b.cone(tr.x, tr.y + 3.8f * s, tr.z, 1.9f * s, 3.6f * s, 7, PINE.scale(tint * 1.08f), rot + 0.4f)
+                b.prism(tr.x, tr.y - 0.5f, tr.z, 0.32f * s, 2.6f * s, 6, TRUNK, topRadius = 0.18f * s)
+                val c = PINE.scale(tint)
+                b.cone(tr.x, tr.y + 1.3f * s, tr.z, 2.7f * s, 3.8f * s, 9, c, rot)
+                b.cone(tr.x, tr.y + 3.0f * s, tr.z, 2.15f * s, 3.4f * s, 9, c.scale(1.06f), rot + 0.35f)
+                b.cone(tr.x, tr.y + 4.6f * s, tr.z, 1.45f * s, 3.0f * s, 8, c.scale(1.12f), rot + 0.7f)
             } else {
-                b.prism(tr.x, tr.y - 0.5f, tr.z, 0.4f * s, 3.4f * s, 5, TRUNK)
-                // Broadleaf crown: a squashed octahedron.
-                val cy = tr.y + 4.6f * s
-                val r = 2.6f * s
-                val top = V3(tr.x, cy + 2.2f * s, tr.z)
-                val bottom = V3(tr.x, cy - 1.6f * s, tr.z)
-                val center = V3(tr.x, cy, tr.z)
-                val leaf = LEAF.scale(tint)
-                val ring = Array(6) { k ->
-                    val a = rot + (k * PI / 3).toFloat()
-                    V3(tr.x + cos(a) * r, cy, tr.z + sin(a) * r)
-                }
-                for (k in 0 until 6) {
-                    val p0 = ring[k]
-                    val p1 = ring[(k + 1) % 6]
-                    b.tri(top, p0, p1, leaf.scale(if (k % 2 == 0) 1.05f else 0.95f), center)
-                    b.tri(bottom, p0, p1, leaf.scale(0.8f), center)
-                }
+                b.prism(tr.x, tr.y - 0.5f, tr.z, 0.38f * s, 3.8f * s, 6, TRUNK, topRadius = 0.22f * s)
+                val autumn = Noise.value(tr.x * 0.05f, tr.z * 0.05f)
+                val leaf = LEAF.mix(LEAF_AUTUMN, clamp(autumn - 0.55f, 0f, 1f) * 2f).scale(tint)
+                val cy = tr.y + 4.4f * s
+                val seed = (tr.x * 3 + tr.z).toInt()
+                b.blob(V3(tr.x, cy, tr.z), 2.4f * s, 2.0f * s, 2.4f * s, 4, 8, leaf, seed)
+                b.blob(
+                    V3(tr.x + cos(rot) * 1.1f * s, cy + 1.3f * s, tr.z + sin(rot) * 1.1f * s),
+                    1.7f * s, 1.5f * s, 1.7f * s, 4, 7, leaf.scale(1.08f), seed + 5,
+                )
             }
+        }
+        for (bush in world.bushes) {
+            val tint = 0.85f + Noise.value(bush.x * 0.4f, bush.z * 0.4f) * 0.3f
+            b.blob(
+                V3(bush.x, bush.size * 0.45f, bush.z), bush.size * 1.1f, bush.size * 0.8f, bush.size,
+                3, 7, BUSH.scale(tint), (bush.x + bush.z).toInt(),
+            )
         }
         for (r in world.rocks) {
             val s = r.size
-            val j = Noise.value(r.x, r.z)
-            b.hexahedron(
-                arrayOf(
-                    V3(r.x - s, r.y - 0.3f, r.z - s * 0.8f), V3(r.x + s * 0.9f, r.y - 0.3f, r.z - s),
-                    V3(r.x + s, r.y - 0.3f, r.z + s * 0.7f), V3(r.x - s * 0.8f, r.y - 0.3f, r.z + s),
-                    V3(r.x - s * 0.5f, r.y + s * (0.6f + j), r.z - s * 0.4f), V3(r.x + s * 0.4f, r.y + s * 0.8f, r.z - s * 0.6f),
-                    V3(r.x + s * 0.6f, r.y + s * 0.5f, r.z + s * 0.3f), V3(r.x - s * 0.3f, r.y + s * 0.7f, r.z + s * 0.5f),
-                ),
-                ROCK.scale(0.8f + j * 0.4f),
-            )
-        }
-        return b.toArray()
-    }
-
-    /** Sports car body; local +z is forward, origin on the ground at the car's center. */
-    fun carBody(): FloatArray {
-        val b = MeshBuilder()
-        val paint = Rgb.hex(0xD50000)
-        val paintDark = Rgb.hex(0x9A0007)
-        val glass = Rgb.hex(0x1B2631)
-        val black = Rgb.hex(0x151515)
-        // Lower body: wide and low, with a tapered nose.
-        b.hexahedron(
-            arrayOf(
-                V3(-0.95f, 0.22f, -2.15f), V3(0.95f, 0.22f, -2.15f), V3(0.9f, 0.25f, 2.25f), V3(-0.9f, 0.25f, 2.25f),
-                V3(-0.95f, 0.78f, -2.1f), V3(0.95f, 0.78f, -2.1f), V3(0.82f, 0.55f, 2.2f), V3(-0.82f, 0.55f, 2.2f),
-            ),
-            paint,
-        )
-        // Cabin with raked windshield and fastback.
-        b.hexahedron(
-            arrayOf(
-                V3(-0.82f, 0.76f, -1.45f), V3(0.82f, 0.76f, -1.45f), V3(0.82f, 0.72f, 0.75f), V3(-0.82f, 0.72f, 0.75f),
-                V3(-0.62f, 1.2f, -0.75f), V3(0.62f, 1.2f, -0.75f), V3(0.62f, 1.2f, -0.05f), V3(-0.62f, 1.2f, -0.05f),
-            ),
-            glass, paint,
-        )
-        // Side skirts.
-        b.box(0.97f, 0.3f, 0f, 0.05f, 0.08f, 1.5f, black)
-        b.box(-0.97f, 0.3f, 0f, 0.05f, 0.08f, 1.5f, black)
-        // Rear spoiler.
-        b.box(0.55f, 0.92f, -1.95f, 0.05f, 0.14f, 0.08f, black)
-        b.box(-0.55f, 0.92f, -1.95f, 0.05f, 0.14f, 0.08f, black)
-        b.box(0f, 1.08f, -2.0f, 0.95f, 0.04f, 0.2f, paintDark)
-        // Lights.
-        b.box(0.62f, 0.5f, 2.2f, 0.2f, 0.06f, 0.06f, Rgb(1f, 0.98f, 0.85f))
-        b.box(-0.62f, 0.5f, 2.2f, 0.2f, 0.06f, 0.06f, Rgb(1f, 0.98f, 0.85f))
-        b.box(0.65f, 0.64f, -2.16f, 0.22f, 0.06f, 0.04f, Rgb(1f, 0.1f, 0.1f))
-        b.box(-0.65f, 0.64f, -2.16f, 0.22f, 0.06f, 0.04f, Rgb(1f, 0.1f, 0.1f))
-        // Front grille and racing stripe.
-        b.box(0f, 0.34f, 2.24f, 0.5f, 0.07f, 0.03f, black)
-        b.hexahedron(
-            arrayOf(
-                V3(-0.18f, 0.79f, -2.11f), V3(0.18f, 0.79f, -2.11f), V3(0.18f, 0.56f, 2.21f), V3(-0.18f, 0.56f, 2.21f),
-                V3(-0.18f, 0.80f, -2.11f), V3(0.18f, 0.80f, -2.11f), V3(0.18f, 0.57f, 2.21f), V3(-0.18f, 0.57f, 2.21f),
-            ),
-            Rgb(0.95f, 0.95f, 0.95f),
-        )
-        return b.toArray()
-    }
-
-    fun wheel(): FloatArray {
-        val b = MeshBuilder()
-        b.wheel(CarPhysics.WHEEL_RADIUS, 0.14f, 14, Rgb.hex(0x1C1C1C), Rgb.hex(0xB0B4B8))
-        return b.toArray()
-    }
-
-    /** Soft dark quad under the car (drawn with blending). */
-    fun shadow(): FloatArray {
-        val b = MeshBuilder()
-        val c = Rgb(0f, 0f, 0f)
-        b.flatQuad(V3(-1.15f, 0.08f, -2.4f), V3(1.15f, 0.08f, -2.4f), V3(1.15f, 0.08f, 2.45f), V3(-1.15f, 0.08f, 2.45f), c)
-        return b.toArray()
-    }
-
-    /** Sky dome around the origin; translated with the camera when drawn. */
-    fun sky(): FloatArray {
-        val b = MeshBuilder()
-        val radius = 1000f
-        val rings = 8
-        val segs = 24
-        val center = V3(0f, 0f, 0f)
-        fun pt(ring: Int, seg: Int): V3 {
-            val elev = (ring.toFloat() / rings) * (PI / 2).toFloat() - 0.15f
-            val az = (seg.toFloat() / segs) * (2 * PI).toFloat()
-            return V3(cos(elev) * cos(az) * radius, sin(elev) * radius, cos(elev) * sin(az) * radius)
-        }
-        for (r in 0 until rings) for (s in 0 until segs) {
-            val t = clamp((r + 0.5f) / rings, 0f, 1f)
-            val color = SKY_HORIZON.mix(SKY_ZENITH, t * t * 0.9f + t * 0.1f)
-            b.quad(pt(r, s), pt(r, s + 1), pt(r + 1, s + 1), pt(r + 1, s), color, center)
+            b.blob(V3(r.x, r.y + s * 0.2f, r.z), s * 1.2f, s * 0.75f, s, 3, 6, ROCK.scale(0.8f + Noise.value(r.x, r.z) * 0.4f), r.x.toInt())
         }
         return b.toArray()
     }

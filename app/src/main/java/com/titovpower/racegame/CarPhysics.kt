@@ -104,6 +104,6 @@ class CarPhysics(var x: Float = 0f, var z: Float = 0f, var yaw: Float = 0f) {
     }
 
     companion object {
-        const val WHEEL_RADIUS = 0.36f
+        const val WHEEL_RADIUS = 0.33f
     }
 }
