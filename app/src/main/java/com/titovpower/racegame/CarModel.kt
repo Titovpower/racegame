@@ -73,7 +73,7 @@ object CarModel {
         return top
     }
 
-    fun body(): FloatArray {
+    fun body(paint: Rgb = PAINT): FloatArray {
         val b = MeshBuilder(1 shl 15)
         val profile = sideProfile()
 
@@ -95,7 +95,7 @@ object CarModel {
         }
         b.loft(
             rings,
-            colorAt = { i, j -> if (rings[i][j].y < 0.36f) TRIM else PAINT },
+            colorAt = { i, j -> if (rings[i][j].y < 0.36f) TRIM else paint },
             glossAt = { i, j -> if (rings[i][j].y < 0.36f) 0.2f else 0.75f },
             capStart = true, capEnd = true,
         )
@@ -129,7 +129,7 @@ object CarModel {
             colorAt = { i, j ->
                 val p = cabin[i][j]
                 val roof = p.y > secs[i].roofY - 0.035f && i in 2..5
-                if (roof) PAINT else GLASS
+                if (roof) paint else GLASS
             },
             glossAt = { i, j -> if (cabin[i][j].y > secs[i].roofY - 0.035f && i in 2..5) 0.75f else 1f },
             capStart = true, capEnd = true,
@@ -153,7 +153,7 @@ object CarModel {
                 V3(-0.92f, 1.07f, -2.2f), V3(0.92f, 1.07f, -2.2f), V3(0.92f, 1.08f, -1.86f), V3(-0.92f, 1.08f, -1.86f),
                 V3(-0.92f, 1.12f, -2.2f), V3(0.92f, 1.12f, -2.2f), V3(0.92f, 1.1f, -1.86f), V3(-0.92f, 1.1f, -1.86f),
             ),
-            PAINT,
+            paint,
         )
         for (x in floatArrayOf(-0.93f, 0.93f)) b.box(x, 1.08f, -2.03f, 0.015f, 0.08f, 0.2f, TRIM)
         // Side mirrors.
@@ -161,7 +161,7 @@ object CarModel {
             b.gloss = 0.3f
             b.box(side * 0.83f, 0.93f, 0.58f, 0.06f, 0.015f, 0.03f, TRIM)
             b.gloss = 0.75f
-            b.blob(V3(side * 0.92f, 0.96f, 0.56f), 0.09f, 0.055f, 0.07f, 4, 8, PAINT)
+            b.blob(V3(side * 0.92f, 0.96f, 0.56f), 0.09f, 0.055f, 0.07f, 4, 8, paint)
         }
         // Side air intakes ahead of the rear wheels.
         b.gloss = 0.2f

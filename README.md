@@ -3,12 +3,24 @@
 A small 3D racing game for Android. Drive a red sports car around a track through
 grass, woods and hills, seen from a chase camera behind the car.
 
+![Race start](docs/grid.png)
+![Racing](docs/race.png)
 ![On the street](docs/street.png)
 ![On the grass](docs/grass.png)
 ![The car](docs/car.png)
 
 <sub>Screenshots are rendered from the game's own meshes and shader in headless Chromium (WebGL),
 see `tools/preview`. The steering wheel and HUD in them are an approximation of the Android overlay.</sub>
+
+## Race
+
+You race 8 AI opponents over 5 laps, starting from the back of the grid after a 3-2-1 countdown.
+Each opponent has its own skill level (how close to the limit it drives through corners) and a
+preferred line, and swings out to overtake slower cars. Cars bump into each other.
+
+The **ranking** in the bottom-left corner shows the live order: finished drivers by finishing time,
+everyone else by distance covered. Your row is highlighted, and your position and lap are shown
+top right. When you cross the line after the last lap, tap anywhere to race again.
 
 ## Controls
 
@@ -30,7 +42,7 @@ slowly than on the **street**, and its top speed is lower:
 | Max steering rate | 1.5 rad/s | 0.75 rad/s |
 
 These live in `Surface.STREET` / `Surface.GRASS` in `CarPhysics.kt`.
-The HUD shows speed, the current ground type and lap times.
+The HUD shows speed, the current ground type, position, lap and lap times.
 
 ## Tech
 
@@ -47,7 +59,7 @@ a procedural sky with sun and clouds, and distance fog.
 | `Scene.kt` | Chase camera and the per-frame draw list (API independent) |
 | `GameRenderer.kt` | GL thread: simulation loop and OpenGL drawing |
 | `ShaderSource.kt` | GLSL vertex and fragment shader |
-| `GameState.kt` | Simulation: ground detection, collisions, laps |
+| `GameState.kt` | Race simulation: AI drivers, grid and countdown, collisions, laps, ranking |
 | `CarPhysics.kt` | Car model and street/grass parameters |
 | `World.kt`, `Track.kt` | Track shape, hills, trees, bushes, rocks, grandstand |
 | `CarModel.kt` | The sports car: lofted body with wheel arches, glass cabin, alloy wheels |

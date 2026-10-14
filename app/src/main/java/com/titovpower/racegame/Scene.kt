@@ -34,7 +34,9 @@ class DrawParams {
 /** Receives the draw calls of one frame (the GL renderer, or the offline preview). */
 interface DrawSink {
     fun beginFrame(viewProj: FloatArray, camX: Float, camY: Float, camZ: Float)
-    fun draw(mesh: MeshId, model: FloatArray, params: DrawParams)
+
+    /** [mesh] is a key of [Scene.meshes]. */
+    fun draw(mesh: String, model: FloatArray, params: DrawParams)
 }
 
 /**
@@ -42,22 +44,25 @@ interface DrawSink {
  * mesh data, chase camera and the per-frame list of draw calls.
  */
 class Scene(private val game: GameState) {
-    /** CPU-side mesh data, built once. */
-    val meshes: Map<MeshId, FloatArray> by lazy {
+    /** CPU-side mesh data, built once, keyed by [MeshId] name (car bodies: one per paint color). */
+    val meshes: Map<String, FloatArray> by lazy {
         val w = game.world
-        mapOf(
-            MeshId.SKY to SceneMeshes.sky(),
-            MeshId.GROUND to SceneMeshes.ground(w),
-            MeshId.ROAD to SceneMeshes.road(w.track),
-            MeshId.SHADOWS to SceneMeshes.shadows(w),
-            MeshId.PROPS to SceneMeshes.props(w),
-            MeshId.VEGETATION to SceneMeshes.vegetation(w),
-            MeshId.CAR_BODY to CarModel.body(),
-            MeshId.CAR_LIGHTS to CarModel.tailLights(),
-            MeshId.WHEEL to CarModel.wheel(),
-            MeshId.CAR_SHADOW to CarModel.shadow(),
+        val m = linkedMapOf(
+            MeshId.SKY.name to SceneMeshes.sky(),
+            MeshId.GROUND.name to SceneMeshes.ground(w),
+            MeshId.ROAD.name to SceneMeshes.road(w.track),
+            MeshId.SHADOWS.name to SceneMeshes.shadows(w),
+            MeshId.PROPS.name to SceneMeshes.props(w),
+            MeshId.VEGETATION.name to SceneMeshes.vegetation(w),
+            MeshId.CAR_LIGHTS.name to CarModel.tailLights(),
+            MeshId.WHEEL.name to CarModel.wheel(),
+            MeshId.CAR_SHADOW.name to CarModel.shadow(),
         )
+        for (r in game.racers) m[bodyKey(r.color)] = CarModel.body(Rgb.hex(r.color))
+        m
     }
+
+    private fun bodyKey(color: Int) = MeshId.CAR_BODY.name + "_" + Integer.toHexString(color)
 
     private val proj = FloatArray(16)
     private val shiftedProj = FloatArray(16)
@@ -115,32 +120,32 @@ class Scene(private val game: GameState) {
         Matrix.multiplyMM(viewProj, 0, shiftedProj, 0, view, 0)
     }
 
-    fun render(sink: DrawSink, braking: Boolean) {
+    fun render(sink: DrawSink) {
         sink.beginFrame(viewProj, camX, camY, camZ)
 
         // Sky: centered on the camera, behind everything.
         Matrix.setIdentityM(model, 0)
         Matrix.translateM(model, 0, camX, camY, camZ)
         params.reset().apply { mode = 1f; depthTest = false; depthWrite = false }
-        sink.draw(MeshId.SKY, model, params)
+        sink.draw(MeshId.SKY.name, model, params)
 
         Matrix.setIdentityM(model, 0)
         params.reset().apply { detail = 0.7f; detailScale = 0.6f }
-        sink.draw(MeshId.GROUND, model, params)
+        sink.draw(MeshId.GROUND.name, model, params)
         // The road sits a few cm above the grass; polygon offset stops it flickering at a distance.
         params.reset().apply { detail = 0.35f; detailScale = 3f; polygonOffset = true }
-        sink.draw(MeshId.ROAD, model, params)
+        sink.draw(MeshId.ROAD.name, model, params)
         params.reset().apply { mode = 2f; blend = true; depthWrite = false; polygonOffset = true }
-        sink.draw(MeshId.SHADOWS, model, params)
+        sink.draw(MeshId.SHADOWS.name, model, params)
         params.reset()
-        sink.draw(MeshId.PROPS, model, params)
-        sink.draw(MeshId.VEGETATION, model, params)
+        sink.draw(MeshId.PROPS.name, model, params)
+        sink.draw(MeshId.VEGETATION.name, model, params)
 
-        drawCar(sink, braking)
+        for (r in game.racers) drawCar(sink, r)
     }
 
-    private fun drawCar(sink: DrawSink, braking: Boolean) {
-        val car = game.car
+    private fun drawCar(sink: DrawSink, racer: Racer) {
+        val car = racer.car
         Matrix.setIdentityM(carModel, 0)
         Matrix.translateM(carModel, 0, car.x, 0f, car.z)
         Matrix.rotateM(carModel, 0, Math.toDegrees(car.yaw.toDouble()).toFloat(), 0f, 1f, 0f)
@@ -148,7 +153,7 @@ class Scene(private val game: GameState) {
         // Soft shadow (before body roll/pitch so it stays on the ground).
         System.arraycopy(carModel, 0, model, 0, 16)
         params.reset().apply { mode = 2f; blend = true; depthWrite = false; polygonOffset = true }
-        sink.draw(MeshId.CAR_SHADOW, model, params)
+        sink.draw(MeshId.CAR_SHADOW.name, model, params)
 
         // Wheels; the mesh's outer face is +x, so left-side wheels are mirrored.
         val spinDeg = Math.toDegrees(car.wheelSpin.toDouble()).toFloat()
@@ -162,7 +167,7 @@ class Scene(private val game: GameState) {
             if (wz > 0f) Matrix.rotateM(model, 0, steerDeg, 0f, 1f, 0f)
             Matrix.rotateM(model, 0, spinDeg, 1f, 0f, 0f)
             if (wx < 0f) Matrix.scaleM(model, 0, -1f, 1f, 1f)
-            sink.draw(MeshId.WHEEL, model, params)
+            sink.draw(MeshId.WHEEL.name, model, params)
         }
 
         // Body with a little pitch under acceleration and roll in corners.
@@ -173,13 +178,13 @@ class Scene(private val game: GameState) {
         Matrix.rotateM(model, 0, pitch, 1f, 0f, 0f)
         Matrix.rotateM(model, 0, roll, 0f, 0f, 1f)
         params.reset()
-        sink.draw(MeshId.CAR_BODY, model, params)
-        if (braking) {
+        sink.draw(bodyKey(racer.color), model, params)
+        if (racer.braking) {
             params.reset().apply { mode = 2f; tintR = 1.6f; tintG = 1.6f; tintB = 1.6f }
         } else {
             params.reset()
         }
-        sink.draw(MeshId.CAR_LIGHTS, model, params)
+        sink.draw(MeshId.CAR_LIGHTS.name, model, params)
     }
 
     companion object {

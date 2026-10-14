@@ -73,6 +73,27 @@ function overlay(frame) {
   const tw = g.measureText(frame.surface).width + 20 * d, top = 16*d + 40*d + 10*d;
   g.beginPath(); g.roundRect(16*d, top, tw, 15*d + 12*d, 8*d); g.fill();
   g.fillStyle = 'white'; g.fillText(frame.surface, 26*d, top + 15*d + 3*d);
+  // Position and lap, top right.
+  g.textAlign = 'right'; g.shadowBlur = 4; g.shadowOffsetY = 2;
+  g.font = `italic bold ${40*d}px sans-serif`; g.fillText(`P${frame.position}/${frame.standings.length}`, W - 16*d, 16*d + 40*d);
+  g.font = `bold ${15*d}px sans-serif`; g.fillText(`LAP ${frame.lap}/${frame.totalLaps}`, W - 16*d, 16*d + 44*d + 21*d);
+  g.shadowBlur = 0; g.shadowOffsetY = 0; g.textAlign = 'left';
+  // Ranking, bottom left.
+  const pad = 12*d, rowH = 17*d, headerH = 20*d, panelW = 132*d, bottom = H - pad;
+  const ptop = bottom - headerH - frame.standings.length * rowH - 6*d;
+  g.fillStyle = 'rgba(12,14,18,0.59)'; g.beginPath(); g.roundRect(pad, ptop, panelW, bottom - ptop, 10*d); g.fill();
+  g.font = `bold ${12*d}px sans-serif`; g.fillStyle = 'rgba(255,255,255,0.78)'; g.fillText('RANKING', pad + 10*d, ptop + headerH - 5*d);
+  frame.standings.forEach((r, k) => {
+    const y0 = ptop + headerH + k * rowH, base = y0 + rowH - 4.5*d;
+    if (r.player) { g.fillStyle = 'rgba(200,16,46,0.78)'; g.beginPath(); g.roundRect(pad + 4*d, y0, panelW - 8*d, rowH, 6*d); g.fill(); }
+    g.fillStyle = 'white'; g.textAlign = 'right'; g.fillText(String(k + 1), pad + 24*d, base); g.textAlign = 'left';
+    g.fillStyle = '#' + r.color.toString(16).padStart(6, '0'); g.beginPath(); g.arc(pad + 36*d, y0 + rowH / 2, 5*d, 0, 7); g.fill();
+    g.fillStyle = 'white'; g.fillText(r.name, pad + 47*d, base);
+  });
+  if (frame.countdown > 0) {
+    const n = Math.ceil(frame.countdown - 0.5);
+    if (n >= 1 && n <= 3) { g.textAlign = 'center'; g.font = `italic bold ${72*d}px sans-serif`; g.shadowBlur = 8; g.fillText(String(n), W / 2, H * 0.32); g.shadowBlur = 0; }
+  }
 }
 main().catch(e => { document.title = 'error: ' + e.message; });
 </script></body></html>

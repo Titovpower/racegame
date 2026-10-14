@@ -77,6 +77,19 @@ class ControlOverlayView(
         setShadowLayer(3f, 0f, 1f, Color.BLACK)
     }
     private val chipPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val panelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(150, 12, 14, 18) }
+    private val highlightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(200, 200, 16, 46) }
+    private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val rowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        typeface = Typeface.DEFAULT_BOLD
+    }
+    private val bigPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textAlign = Paint.Align.CENTER
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD_ITALIC)
+        setShadowLayer(8f, 0f, 3f, Color.BLACK)
+    }
     private val rect = RectF()
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -90,6 +103,8 @@ class ControlOverlayView(
         hintPaint.textSize = 12f * density
         speedPaint.textSize = 40f * density
         labelPaint.textSize = 15f * density
+        rowPaint.textSize = 12f * density
+        bigPaint.textSize = 72f * density
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -100,7 +115,9 @@ class ControlOverlayView(
                     val i = event.actionIndex
                     val x = event.getX(i)
                     val y = event.getY(i)
-                    if (hypot(x - cx, y - cy) <= wheelRadius * 1.5f) {
+                    if (telemetry.finished && hypot(x - cx, y - cy) > wheelRadius * 1.5f) {
+                        controls.restart = true
+                    } else if (hypot(x - cx, y - cy) <= wheelRadius * 1.5f) {
                         activePointer = event.getPointerId(i)
                         startX = x
                         startY = y
@@ -138,6 +155,8 @@ class ControlOverlayView(
 
     override fun onDraw(canvas: Canvas) {
         drawHud(canvas)
+        drawStandings(canvas)
+        drawRaceMessages(canvas)
         drawPedalGauge(canvas)
         drawWheel(canvas)
         postInvalidateOnAnimation()
@@ -204,14 +223,73 @@ class ControlOverlayView(
         canvas.drawRoundRect(rect, 8f * density, 8f * density, chipPaint)
         canvas.drawText(chipText, pad + 10f * density, chipTop + labelPaint.textSize + 3f * density, labelPaint)
 
-        // Lap times, top right.
+        // Position, lap and lap times, top right.
         val right = width - pad
+        speedPaint.textAlign = Paint.Align.RIGHT
         labelPaint.textAlign = Paint.Align.RIGHT
+        val total = telemetry.standings.size
+        canvas.drawText("P${telemetry.position}/$total", right, pad + speedPaint.textSize, speedPaint)
         val line = labelPaint.textSize * 1.4f
-        canvas.drawText("LAP  " + formatTime(telemetry.lapTime), right, pad + line, labelPaint)
-        canvas.drawText("LAST " + formatTime(telemetry.lastLap), right, pad + line * 2, labelPaint)
-        canvas.drawText("BEST " + formatTime(telemetry.bestLap), right, pad + line * 3, labelPaint)
+        val top = pad + speedPaint.textSize + 4f * density
+        canvas.drawText("LAP ${telemetry.lap}/${telemetry.totalLaps}", right, top + line, labelPaint)
+        canvas.drawText("TIME " + formatTime(telemetry.lapTime), right, top + line * 2, labelPaint)
+        canvas.drawText("LAST " + formatTime(telemetry.lastLap), right, top + line * 3, labelPaint)
+        canvas.drawText("BEST " + formatTime(telemetry.bestLap), right, top + line * 4, labelPaint)
         labelPaint.textAlign = Paint.Align.LEFT
+        speedPaint.textAlign = Paint.Align.LEFT
+    }
+
+    /** Race ranking in the bottom-left corner, leader first. */
+    private fun drawStandings(canvas: Canvas) {
+        val rows = telemetry.standings
+        if (rows.isEmpty()) return
+        val pad = 12f * density
+        val rowH = 17f * density
+        val headerH = 20f * density
+        val panelW = 132f * density
+        val bottom = height - pad
+        val top = bottom - headerH - rows.size * rowH - 6f * density
+        rect.set(pad, top, pad + panelW, bottom)
+        canvas.drawRoundRect(rect, 10f * density, 10f * density, panelPaint)
+        rowPaint.color = Color.argb(200, 255, 255, 255)
+        canvas.drawText("RANKING", pad + 10f * density, top + headerH - 5f * density, rowPaint)
+        for ((k, row) in rows.withIndex()) {
+            val y0 = top + headerH + k * rowH
+            if (row.isPlayer) {
+                rect.set(pad + 4f * density, y0, pad + panelW - 4f * density, y0 + rowH)
+                canvas.drawRoundRect(rect, 6f * density, 6f * density, highlightPaint)
+            }
+            val baseline = y0 + rowH - 4.5f * density
+            rowPaint.color = Color.WHITE
+            rowPaint.textAlign = Paint.Align.RIGHT
+            canvas.drawText("${k + 1}", pad + 24f * density, baseline, rowPaint)
+            rowPaint.textAlign = Paint.Align.LEFT
+            dotPaint.color = Color.rgb((row.color shr 16) and 0xFF, (row.color shr 8) and 0xFF, row.color and 0xFF)
+            canvas.drawCircle(pad + 36f * density, y0 + rowH / 2f, 5f * density, dotPaint)
+            canvas.drawText(row.name, pad + 47f * density, baseline, rowPaint)
+            if (row.finished) {
+                rowPaint.textAlign = Paint.Align.RIGHT
+                canvas.drawText("\u2691", pad + panelW - 10f * density, baseline, rowPaint)
+                rowPaint.textAlign = Paint.Align.LEFT
+            }
+        }
+    }
+
+    /** Start countdown and the finish banner. */
+    private fun drawRaceMessages(canvas: Canvas) {
+        val midY = height * 0.32f
+        val cd = telemetry.countdown
+        if (cd > 0f) {
+            // 3.5 s countdown: "3", "2", "1" each for a second after a short pause.
+            val n = kotlin.math.ceil(cd - 0.5f).toInt()
+            if (n in 1..3) canvas.drawText("$n", width / 2f, midY, bigPaint)
+        } else if (telemetry.raceTime in 0.001f..1.2f) {
+            canvas.drawText("GO!", width / 2f, midY, bigPaint)
+        }
+        if (telemetry.finished) {
+            canvas.drawText("FINISHED P${telemetry.position}", width / 2f, midY, bigPaint)
+            canvas.drawText("Tap anywhere to race again", width / 2f, midY + 30f * density, hintPaint)
+        }
     }
 
     private fun formatTime(seconds: Float): String {

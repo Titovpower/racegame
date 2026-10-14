@@ -12,6 +12,8 @@ class Controls {
     @Volatile var steer = 0f
     @Volatile var throttle = 0f
     @Volatile var brake = 0f
+    /** Set by the UI to start a new race; cleared by the GL thread. */
+    @Volatile var restart = false
 }
 
 /** Values the HUD shows, written by the GL thread. */
@@ -21,6 +23,13 @@ class Telemetry {
     @Volatile var lapTime = 0f
     @Volatile var lastLap = 0f
     @Volatile var bestLap = 0f
+    @Volatile var standings: List<Standing> = emptyList()
+    @Volatile var position = 0
+    @Volatile var lap = 0
+    @Volatile var totalLaps = 0
+    @Volatile var countdown = 0f
+    @Volatile var raceTime = 0f
+    @Volatile var finished = false
 }
 
 class GameRenderer(
@@ -33,7 +42,7 @@ class GameRenderer(
     private val scene by lazy { Scene(game) }
 
     private lateinit var shader: Shader
-    private val meshes = HashMap<MeshId, GlMesh>()
+    private val meshes = HashMap<String, GlMesh>()
     private val viewProj = FloatArray(16)
     private val mvp = FloatArray(16)
     private var aspect = 1f
@@ -60,6 +69,10 @@ class GameRenderer(
         val dt = if (lastNanos == 0L) 0f else ((now - lastNanos) / 1e9f).coerceAtMost(0.05f)
         lastNanos = now
 
+        if (controls.restart) {
+            controls.restart = false
+            game.reset()
+        }
         // Simulate in small fixed steps for stable physics.
         var remaining = dt
         while (remaining > 0f) {
@@ -73,9 +86,16 @@ class GameRenderer(
         telemetry.lapTime = game.lapTime
         telemetry.lastLap = game.lastLap
         telemetry.bestLap = game.bestLap
+        telemetry.standings = game.standingsSnapshot()
+        telemetry.position = game.position
+        telemetry.lap = minOf(game.player.lapsDone + 1, game.totalLaps)
+        telemetry.totalLaps = game.totalLaps
+        telemetry.countdown = game.countdown
+        telemetry.raceTime = game.raceTime
+        telemetry.finished = game.player.finished
 
         scene.updateCamera(dt, aspect)
-        scene.render(this, braking = controls.brake > 0.05f)
+        scene.render(this)
     }
 
     override fun beginFrame(viewProj: FloatArray, camX: Float, camY: Float, camZ: Float) {
@@ -96,7 +116,7 @@ class GameRenderer(
         GLES20.glDepthFunc(GLES20.GL_LEQUAL)
     }
 
-    override fun draw(mesh: MeshId, model: FloatArray, params: DrawParams) {
+    override fun draw(mesh: String, model: FloatArray, params: DrawParams) {
         val m = meshes[mesh] ?: return
         if (params.depthTest) GLES20.glEnable(GLES20.GL_DEPTH_TEST) else GLES20.glDisable(GLES20.GL_DEPTH_TEST)
         GLES20.glDepthMask(params.depthWrite)

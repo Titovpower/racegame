@@ -105,7 +105,7 @@ class GameLogicTest {
 
     @Test
     fun autopilotCompletesALapOnTheStreet() {
-        val game = GameState(World())
+        val game = GameState(World(), opponents = 0)
         val track = game.world.track
         var streetFrames = 0
         var frames = 0
@@ -131,5 +131,48 @@ class GameLogicTest {
         // Steer hard off the track at full throttle for a long time.
         repeat(6000) { game.update(1f / 60f, 1f, 1f, 0f) }
         assertTrue(game.world.track.nearest(game.car.x, game.car.z).distance <= game.world.driveRadius + 1f)
+    }
+
+    @Test
+    fun countdownHoldsEveryoneOnTheGrid() {
+        val game = GameState(World())
+        val start = game.racers.map { it.car.x to it.car.z }
+        repeat(120) { game.update(1f / 60f, 0f, 1f, 0f) }
+        assertEquals(start, game.racers.map { it.car.x to it.car.z })
+        assertEquals(9, game.racers.size)
+        // The player starts at the back.
+        assertEquals(9, game.position)
+    }
+
+    @Test
+    fun opponentsRaceCleanlyAndAreRankedByFinish() {
+        val game = GameState(World())
+        val grassFrames = IntArray(game.racers.size)
+        var frames = 0
+        while (game.racers.any { !it.isPlayer && !it.finished } && frames < 60 * 400) {
+            // Player stays parked on the grid.
+            game.update(1f / 60f, 0f, 0f, 1f)
+            for ((k, r) in game.racers.withIndex()) if (!r.finished && r.surface == Surface.GRASS) grassFrames[k]++
+            frames++
+        }
+        val ai = game.racers.filter { !it.isPlayer }
+        assertTrue("not all opponents finished in time", ai.all { it.finished })
+        for ((k, r) in game.racers.withIndex()) {
+            if (!r.isPlayer) assertTrue("${r.name} spent $frames/${grassFrames[k]} on grass", grassFrames[k] < frames / 10)
+        }
+        // Finishers first, in finishing order; the parked player is last.
+        val finishers = game.standings.filter { it.finished }
+        assertEquals(finishers.sortedBy { it.finishTime }, finishers)
+        assertTrue(game.standings.last().isPlayer)
+        // Every lap took a plausible time.
+        for (r in ai) assertTrue("${r.name} best lap ${r.bestLap}", r.bestLap in 25f..90f)
+    }
+
+    @Test
+    fun rankingFollowsDistanceCovered() {
+        val game = GameState(World())
+        repeat(60 * 25) { game.update(1f / 60f, 0f, 0f, 0f) }
+        val progress = game.standings.map { it.progress }
+        assertEquals(progress.sortedDescending(), progress)
     }
 }
