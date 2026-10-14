@@ -2,5 +2,3 @@ build/
 .gradle/
 .kotlin/
 *.png
-filament.js
-filament.wasm

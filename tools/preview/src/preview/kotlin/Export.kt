@@ -55,10 +55,30 @@ fun main(args: Array<String>) {
         target = floatArrayOf(car.x, 0.55f, car.z)
         android.opengl.Matrix.perspectiveM(projection, 0, 45f, aspect, Scene.NEAR, Scene.FAR)
     }
+    // Camera matrices as the renderer builds them (the sky only turns with the camera).
+    val view = FloatArray(16)
+    android.opengl.Matrix.setLookAtM(view, 0, cam[0], cam[1], cam[2], target[0], target[1], target[2], 0f, 1f, 0f)
+    val viewProj = FloatArray(16).also { android.opengl.Matrix.multiplyMM(it, 0, projection, 0, view, 0) }
+    view[12] = 0f; view[13] = 0f; view[14] = 0f
+    val skyInv = FloatArray(16).also {
+        val vp = FloatArray(16)
+        android.opengl.Matrix.multiplyMM(vp, 0, projection, 0, view, 0)
+        android.opengl.Matrix.invertM(it, 0, vp, 0)
+    }
+    fun str(s: String) = "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n") + "\""
+    val shaders = listOf(
+        "vertex" to GlShaders.VERTEX, "fragment" to GlShaders.FRAGMENT,
+        "skyVertex" to GlShaders.SKY_VERTEX, "skyFragment" to GlShaders.SKY_FRAGMENT,
+        "shadowVertex" to GlShaders.SHADOW_VERTEX, "shadowFragment" to GlShaders.SHADOW_FRAGMENT,
+    ).joinToString(",", "{", "}") { (k, v) -> "\"$k\":${str(v)}" }
     val cars = scene.cars().joinToString(",", "[", "]") { """{"asset":"${it.asset}","model":${arr(it.model)},"braking":${it.braking}}""" }
     val wheels = scene.wheels().joinToString(",", "[", "]") { arr(it) }
     val sb = StringBuilder()
-    sb.append("""{"cam":${arr(cam)},"target":${arr(target)},"projection":${arr(projection)},"near":${Scene.NEAR},"far":${Scene.FAR},""")
+    sb.append("""{"shaders":$shaders,"viewProj":${arr(viewProj)},"skyInvViewProj":${arr(skyInv)},""")
+    sb.append(""""lightVP0":${arr(scene.nearLightViewProj)},"lightVP1":${arr(scene.farLightViewProj)},"shadowSize":${Scene.SHADOW_MAP_SIZE},""")
+    sb.append(""""shadowTexel":[${2f * Scene.NEAR_SHADOW_EXTENT / Scene.SHADOW_MAP_SIZE},${2f * Scene.FAR_SHADOW_EXTENT / Scene.SHADOW_MAP_SIZE}],""")
+    sb.append(""""exposureValue":${Scene.EXPOSURE},"fog":${arr(Scene.FOG)},"footprints":${arr(scene.carFootprints())},"maxCars":${GlShaders.MAX_CARS},""")
+    sb.append(""""cam":${arr(cam)},"target":${arr(target)},"projection":${arr(projection)},"near":${Scene.NEAR},"far":${Scene.FAR},""")
     sb.append(""""sun":[${Scene.SUN.x},${Scene.SUN.y},${Scene.SUN.z}],"sunLux":${Scene.SUN_LUX},"skyIntensity":${Scene.SKY_INTENSITY},""")
     sb.append(""""exposure":[${Scene.APERTURE},${Scene.SHUTTER},${Scene.ISO}],"skySize":${Scene.SKY_SIZE},"sh":${arr(SkyEnvironment.irradianceSh())},""")
     val fog = SkyEnvironment.fogColor

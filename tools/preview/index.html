@@ -3,84 +3,242 @@
 <canvas id="c" width="1280" height="640" style="position:absolute;width:1280px;height:640px"></canvas>
 <canvas id="o" width="1280" height="640" style="position:absolute"></canvas>
 </div>
-<script src="filament.js"></script>
 <script>
-// Renders the exported scene with Filament's WebAssembly build, set up like FilamentRenderer.kt.
+// Renders the exported scene with WebGL 2 and the app's own GLSL ES 3.00 shaders (GlShaders.kt),
+// drawing it the way GlRenderer.kt does: shadow cascades, sky, then the glTF assets.
 const q = new URLSearchParams(location.search);
 const dir = q.get('dir'), hud = q.get('hud') !== '0';
+
+// Binary glTF reader (mirrors Gltf.kt): primitives with node transforms, materials, images.
+function parseGlb(bytes) {
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let off = 12, json, bin = 0;
+  while (off + 8 <= bytes.length) {
+    const len = dv.getUint32(off, true), type = dv.getUint32(off + 4, true);
+    if (type === 0x4E4F534A) json = JSON.parse(new TextDecoder().decode(bytes.subarray(off + 8, off + 8 + len)));
+    if (type === 0x004E4942) bin = off + 8;
+    off += 8 + len;
+  }
+  const views = json.bufferViews || [], accs = json.accessors || [];
+  const comps = {SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT4: 16};
+  function floats(a) {
+    const acc = accs[a], n = comps[acc.type], ct = acc.componentType, size = {5120: 1, 5121: 1, 5122: 2, 5123: 2}[ct] || 4;
+    const view = views[acc.bufferView], stride = view.byteStride || n * size, base = bin + (view.byteOffset || 0) + (acc.byteOffset || 0);
+    const out = new Float32Array(acc.count * n);
+    for (let i = 0; i < acc.count; i++) for (let c = 0; c < n; c++) {
+      const p = base + i * stride + c * size;
+      out[i * n + c] = ct === 5126 ? dv.getFloat32(p, true) : ct === 5121 ? dv.getUint8(p) / (acc.normalized ? 255 : 1)
+        : ct === 5123 ? dv.getUint16(p, true) / (acc.normalized ? 65535 : 1) : dv.getUint32(p, true);
+    }
+    return [out, n];
+  }
+  function indices(a) {
+    const acc = accs[a], view = views[acc.bufferView], base = bin + (view.byteOffset || 0) + (acc.byteOffset || 0);
+    const out = new Uint32Array(acc.count);
+    for (let i = 0; i < acc.count; i++) out[i] = acc.componentType === 5121 ? dv.getUint8(base + i) : acc.componentType === 5123 ? dv.getUint16(base + i * 2, true) : dv.getUint32(base + i * 4, true);
+    return out;
+  }
+  const images = (json.images || []).map(im => { const v = views[im.bufferView]; return new Blob([bytes.slice(bin + (v.byteOffset || 0), bin + (v.byteOffset || 0) + v.byteLength)], {type: im.mimeType}); });
+  const textures = json.textures || [];
+  const materials = (json.materials || []).map(m => {
+    const pbr = m.pbrMetallicRoughness || {}, cc = (m.extensions || {}).KHR_materials_clearcoat;
+    const t = pbr.baseColorTexture ? pbr.baseColorTexture.index : -1;
+    return {name: m.name || '', baseColor: pbr.baseColorFactor || [1, 1, 1, 1], metallic: pbr.metallicFactor ?? 1, roughness: pbr.roughnessFactor ?? 1,
+      emissive: m.emissiveFactor || [0, 0, 0], clearcoat: cc ? cc.clearcoatFactor || 0 : 0, clearcoatRoughness: cc ? cc.clearcoatRoughnessFactor || 0 : 0,
+      image: t >= 0 ? textures[t].source : -1, doubleSided: !!m.doubleSided, blend: m.alphaMode === 'BLEND'};
+  });
+  const prims = [];
+  function visit(n, parent) {
+    const node = json.nodes[n], world = mul(parent, node.matrix || trs(node));
+    if (node.mesh !== undefined) for (const p of json.meshes[node.mesh].primitives) {
+      if ((p.mode ?? 4) !== 4) continue;
+      const pos = floats(p.attributes.POSITION)[0];
+      let col = null;
+      if (p.attributes.COLOR_0 !== undefined) {
+        const [c, k] = floats(p.attributes.COLOR_0);
+        col = k === 4 ? c : Float32Array.from({length: c.length / 3 * 4}, (_, i) => i % 4 === 3 ? 1 : c[(i >> 2) * 3 + i % 4]);
+      }
+      prims.push({node: node.name || '', matrix: world, material: p.material || 0, positions: pos, normals: floats(p.attributes.NORMAL)[0], colors: col,
+        uvs: p.attributes.TEXCOORD_0 !== undefined ? floats(p.attributes.TEXCOORD_0)[0] : null,
+        indices: p.indices !== undefined ? indices(p.indices) : Uint32Array.from({length: pos.length / 3}, (_, i) => i)});
+    }
+    for (const c of node.children || []) visit(c, world);
+  }
+  for (const r of json.scenes[json.scene || 0].nodes) visit(r, IDENTITY);
+  return {prims, materials, images};
+}
+const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+function mul(a, b) { const o = new Array(16); for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) { let s = 0; for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k]; o[c * 4 + r] = s; } return o; }
+function trs(n) {
+  const t = n.translation || [0, 0, 0], [x, y, z, w] = n.rotation || [0, 0, 0, 1], s = n.scale || [1, 1, 1];
+  return [(1 - 2 * (y * y + z * z)) * s[0], 2 * (x * y + z * w) * s[0], 2 * (x * z - y * w) * s[0], 0,
+    2 * (x * y - z * w) * s[1], (1 - 2 * (x * x + z * z)) * s[1], 2 * (y * z + x * w) * s[1], 0,
+    2 * (x * z + y * w) * s[2], 2 * (y * z - x * w) * s[2], (1 - 2 * (x * x + y * y)) * s[2], 0, t[0], t[1], t[2], 1];
+}
+const det3 = m => m[0] * (m[5] * m[10] - m[6] * m[9]) - m[4] * (m[1] * m[10] - m[2] * m[9]) + m[8] * (m[1] * m[6] - m[2] * m[5]);
+
 async function main() {
   const frame = await (await fetch(dir + '/frame.json')).json();
   const keys = ['world', 'wheel', ...new Set(frame.cars.map(c => c.asset))];
-  const glbs = {};
-  for (const k of keys) glbs[k] = new Uint8Array(await (await fetch(dir + '/' + k + '.glb')).arrayBuffer());
+  const models = {};
+  for (const k of keys) models[k] = parseGlb(new Uint8Array(await (await fetch(dir + '/' + k + '.glb')).arrayBuffer()));
   const skyData = new Float32Array(await (await fetch(dir + '/sky.bin')).arrayBuffer());
-  await new Promise(r => Filament.init([], r));
   const c = document.getElementById('c');
-  const engine = Filament.Engine.create(c);
-  const scene = engine.createScene();
-  const em = Filament.EntityManager.get();
+  const gl = c.getContext('webgl2', {antialias: true, preserveDrawingBuffer: true});
+  if (!gl) throw new Error('no WebGL 2');
 
-  // Sky: HDR cubemap mip chain for the skybox and reflections, SH for diffuse light.
-  const S = frame.skySize, levels = Math.log2(S) + 1;
-  const sky = Filament.Texture.Builder().width(S).height(S).levels(levels)
-    .sampler(Filament.Texture$Sampler.SAMPLER_CUBEMAP).format(Filament.Texture$InternalFormat.R11F_G11F_B10F).build(engine);
+  function link(vs, fs) {
+    const prog = gl.createProgram();
+    for (const [type, src] of [[gl.VERTEX_SHADER, vs], [gl.FRAGMENT_SHADER, fs]]) {
+      const sh = gl.createShader(type); gl.shaderSource(sh, src); gl.compileShader(sh);
+      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error('compile: ' + gl.getShaderInfoLog(sh));
+      gl.attachShader(prog, sh);
+    }
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error('link: ' + gl.getProgramInfoLog(prog));
+    return prog;
+  }
+  const S = frame.shaders;
+  const program = link(S.vertex, S.fragment), skyProgram = link(S.skyVertex, S.skyFragment), shadowProgram = link(S.shadowVertex, S.shadowFragment);
+  const uCache = new Map();
+  const u = (p, name) => { const k = p; if (!uCache.has(k)) uCache.set(k, {}); const m = uCache.get(k); if (!(name in m)) m[name] = gl.getUniformLocation(p, name); return m[name]; };
+
+  // Upload models.
+  async function upload(model) {
+    const tex = [];
+    for (const blob of model.images) {
+      const img = await createImageBitmap(blob, {premultiplyAlpha: 'none', colorSpaceConversion: 'none'});
+      const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.SRGB8_ALPHA8, gl.RGBA, gl.UNSIGNED_BYTE, img);
+      gl.generateMipmap(gl.TEXTURE_2D);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+      tex.push(t);
+    }
+    const prims = model.prims.map(p => {
+      const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+      const attr = (loc, data, n) => { const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, n, gl.FLOAT, false, 0, 0); };
+      attr(0, p.positions, 3); attr(1, p.normals, 3);
+      if (p.colors) attr(2, p.colors, 4); else gl.vertexAttrib4f(2, 1, 1, 1, 1);
+      if (p.uvs) attr(3, p.uvs, 2); else gl.vertexAttrib4f(3, 0, 0, 0, 1);
+      const ib = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, p.indices, gl.STATIC_DRAW);
+      gl.bindVertexArray(null);
+      return {vao, count: p.indices.length, material: model.materials[p.material], matrix: p.matrix, mirrored: det3(p.matrix) < 0};
+    });
+    return {prims, tex};
+  }
+  const gpu = {};
+  for (const k of keys) gpu[k] = await upload(models[k]);
+
+  // Sky cubemap.
+  const skyTex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_CUBE_MAP, skyTex);
+  const levels = Math.log2(frame.skySize) + 1;
   let off = 0;
-  for (let l = 0, s = S; l < levels; l++, s >>= 1) {
-    const n = 6 * s * s * 3;
-    sky.setImageCube(engine, l, Filament.PixelBuffer(skyData.slice(off, off + n), Filament.PixelDataFormat.RGB, Filament.PixelDataType.FLOAT));
-    off += n;
-  }
-  const ibl = Filament.IndirectLight.Builder().reflections(sky).irradianceSh(3, new Float32Array(frame.sh)).intensity(frame.skyIntensity).build(engine);
-  scene.setIndirectLight(ibl);
-  scene.setSkybox(Filament.Skybox.Builder().environment(sky).build(engine));
-
-  const sun = em.create();
-  Filament.LightManager.Builder(Filament.LightManager$Type.SUN).color([1.0, 0.95, 0.88]).intensity(frame.sunLux)
-    .direction(frame.sun.map(v => -v)).sunAngularRadius(1.2).castShadows(true)
-    .build(engine, sun);
-  // (shadowOptions are not bound in filament.js 1.53; the app uses 2048 px maps with 3 cascades.)
-  scene.addEntity(sun);
-
-  const loader = engine.createAssetLoader();
-  const rm = engine.getRenderableManager(), tm = engine.getTransformManager();
-  function load(key) {
-    const asset = loader.createAsset(glbs[key]);
-    asset.loadResources();
-    const ents = asset.getRenderableEntities();
-    for (const e of ents) { const i = rm.getInstance(e); rm.setCastShadows(i, true); rm.setReceiveShadows(i, true); i.delete(); }
-    scene.addEntities(ents);
-    return asset;
-  }
-  function place(asset, m) { const i = tm.getInstance(asset.getRoot()); tm.setTransform(i, m); i.delete(); }
-  load('world');
-  for (const car of frame.cars) {
-    const asset = load(car.asset);
-    place(asset, car.model);
-    if (car.braking) {
-      const lights = asset.getEntitiesByName('lights');
-      for (const e of lights) { const i = rm.getInstance(e); if (i) { const mi = rm.getMaterialInstanceAt(i, 0); mi.setFloat3Parameter('emissiveFactor', [1, 0.05, 0.03]); mi.setFloatParameter('emissiveStrength', 40); } }
+  for (let l = 0, s = frame.skySize; l < levels; l++, s = Math.max(1, s >> 1)) {
+    for (let f = 0; f < 6; f++) {
+      const n = s * s * 3;
+      gl.texImage2D(gl.TEXTURE_CUBE_MAP_POSITIVE_X + f, l, gl.R11F_G11F_B10F, s, s, 0, gl.RGB, gl.FLOAT, skyData.subarray(off, off + n));
+      off += n;
     }
   }
-  for (const m of frame.wheels) place(load('wheel'), m);
+  gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAX_LEVEL, levels - 1);
+  gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
-  const cam = engine.createCamera(em.create());
-  const view = engine.createView();
-  view.setCamera(cam); view.setScene(scene); view.setViewport([0, 0, c.width, c.height]);
-  cam.setCustomProjection(frame.projection, frame.near, frame.far);
-  cam.lookAt(frame.cam, frame.target, [0, 1, 0]);
-  cam.setExposure(frame.exposure[0], frame.exposure[1], frame.exposure[2]);
-  view.setAmbientOcclusionOptions({enabled: true, radius: 0.6, intensity: 1.0});
-  view.setBloomOptions({enabled: true, strength: 0.08});
-  if (!q.has('nofog')) view.setFogOptions({enabled: true, distance: 60, density: 0.0007, height: 0, heightFalloff: 0.02, color: frame.fogColor, maximumOpacity: 0.85, cutOffDistance: 1e6});
-  view.setAntiAliasing(Filament.View$AntiAliasing.FXAA);
-  view.setMultiSampleAntiAliasingOptions({enabled: true, sampleCount: 4});
-
-  const renderer = engine.createRenderer(), swap = engine.createSwapChain();
-  for (let k = 0; k < 24; k++) {
-    await new Promise(r => requestAnimationFrame(r));
-    if (renderer.beginFrame(swap)) { renderer.renderView(view); renderer.endFrame(); }
-    engine.execute();
+  // Shadow maps.
+  const shadowTex = [], shadowFbo = [], SZ = frame.shadowSize;
+  for (let k = 0; k < 2; k++) {
+    const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.DEPTH_COMPONENT24, SZ, SZ);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_MODE, gl.COMPARE_REF_TO_TEXTURE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_FUNC, gl.LEQUAL);
+    const fb = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, t, 0);
+    gl.drawBuffers([gl.NONE]); gl.readBuffer(gl.NONE);
+    shadowTex.push(t); shadowFbo.push(fb);
   }
+
+  const BRAKE_GLOW = [6, 0.12, 0.06];
+  const items = [{m: gpu.world, matrix: IDENTITY}];
+  for (const car of frame.cars) items.push({m: gpu[car.asset], matrix: car.model, emissive: car.braking ? BRAKE_GLOW : null});
+  for (const w of frame.wheels) items.push({m: gpu.wheel, matrix: w});
+
+  gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE);
+  // Shadows.
+  gl.useProgram(shadowProgram);
+  gl.viewport(0, 0, SZ, SZ);
+  gl.disable(gl.CULL_FACE); gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(1.5, 3);
+  for (let k = 0; k < 2; k++) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, shadowFbo[k]); gl.clear(gl.DEPTH_BUFFER_BIT);
+    gl.uniformMatrix4fv(u(shadowProgram, 'uLightVP'), false, k ? frame.lightVP1 : frame.lightVP0);
+    for (const it of (k ? items.slice(0, 1) : items)) for (const p of it.m.prims) {
+      if (p.material.blend) continue;
+      gl.uniformMatrix4fv(u(shadowProgram, 'uModel'), false, mul(it.matrix, p.matrix));
+      gl.bindVertexArray(p.vao); gl.drawElements(gl.TRIANGLES, p.count, gl.UNSIGNED_INT, 0);
+    }
+  }
+  gl.disable(gl.POLYGON_OFFSET_FILL); gl.enable(gl.CULL_FACE);
+
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, c.width, c.height);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  const skyScale = frame.skyIntensity * frame.exposureValue;
+  // Sky.
+  gl.useProgram(skyProgram);
+  gl.depthFunc(gl.LEQUAL); gl.depthMask(false);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_CUBE_MAP, skyTex);
+  gl.uniform1i(u(skyProgram, 'uSky'), 0);
+  gl.uniform1f(u(skyProgram, 'uSkyScale'), skyScale);
+  gl.uniformMatrix4fv(u(skyProgram, 'uInvViewProj'), false, frame.skyInvViewProj);
+  gl.bindVertexArray(gl.createVertexArray()); gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.depthMask(true);
+  // Scene.
+  const p = program;
+  gl.useProgram(p);
+  gl.uniformMatrix4fv(u(p, 'uViewProj'), false, frame.viewProj);
+  gl.uniformMatrix4fv(u(p, 'uLightVP0'), false, frame.lightVP0);
+  gl.uniformMatrix4fv(u(p, 'uLightVP1'), false, frame.lightVP1);
+  gl.uniform2f(u(p, 'uNormalBias'), frame.shadowTexel[0] * 1.5, frame.shadowTexel[1] * 1.5);
+  gl.uniform2f(u(p, 'uShadowTexel'), 1 / SZ, 1 / SZ);
+  gl.uniform1f(u(p, 'uShadowOn'), 1);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_CUBE_MAP, skyTex); gl.uniform1i(u(p, 'uSky'), 1);
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, shadowTex[0]); gl.uniform1i(u(p, 'uShadow0'), 2);
+  gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, shadowTex[1]); gl.uniform1i(u(p, 'uShadow1'), 3);
+  gl.uniform1i(u(p, 'uTex'), 0);
+  gl.uniform1f(u(p, 'uSkyMaxLod'), levels - 1);
+  gl.uniform1f(u(p, 'uSkyScale'), skyScale);
+  gl.uniform3fv(u(p, 'uSh'), frame.sh);
+  const lux = frame.sunLux * frame.exposureValue;
+  gl.uniform3fv(u(p, 'uSunDir'), frame.sun);
+  gl.uniform3f(u(p, 'uSunColor'), 1.0 * lux, 0.95 * lux, 0.88 * lux);
+  gl.uniform3fv(u(p, 'uCamPos'), frame.cam);
+  gl.uniform4fv(u(p, 'uFog'), q.has('nofog') ? [1e9, 0, 0.02, 0] : frame.fog);
+  const nCars = Math.min(frame.footprints.length / 4, frame.maxCars);
+  gl.uniform4fv(u(p, 'uCars'), frame.footprints.slice(0, nCars * 4));
+  gl.uniform1i(u(p, 'uCarCount'), nCars);
+  for (const blend of [false, true]) {
+    if (blend) { gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false); }
+    for (const it of items) {
+      const outerMirrored = det3(it.matrix) < 0;
+      for (const pr of it.m.prims) {
+        const m = pr.material;
+        if (m.blend !== blend) continue;
+        gl.uniformMatrix4fv(u(p, 'uModel'), false, mul(it.matrix, pr.matrix));
+        gl.uniform4fv(u(p, 'uBaseColor'), m.baseColor);
+        gl.uniform1f(u(p, 'uMetallic'), m.metallic); gl.uniform1f(u(p, 'uRoughness'), m.roughness);
+        gl.uniform1f(u(p, 'uClearcoat'), m.clearcoat); gl.uniform1f(u(p, 'uClearcoatRoughness'), m.clearcoatRoughness);
+        gl.uniform3fv(u(p, 'uEmissive'), it.emissive && m.name === 'LAMP' ? it.emissive : m.emissive);
+        const t = m.image >= 0 ? it.m.tex[m.image] : null;
+        gl.uniform1f(u(p, 'uHasTex'), t ? 1 : 0);
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, t);
+        if (m.doubleSided) gl.disable(gl.CULL_FACE); else gl.enable(gl.CULL_FACE);
+        gl.frontFace(pr.mirrored !== outerMirrored ? gl.CW : gl.CCW);
+        gl.bindVertexArray(pr.vao); gl.drawElements(gl.TRIANGLES, pr.count, gl.UNSIGNED_INT, 0);
+      }
+    }
+  }
+  gl.finish();
   if (hud) overlay(frame);
   document.title = 'done';
 }

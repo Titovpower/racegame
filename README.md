@@ -9,7 +9,7 @@ track through grass, woods and hills, seen from a chase camera behind the car.
 ![YOU WIN after 5 laps](docs/win.png)
 ![The six cars](docs/cars.png)
 
-<sub>Screenshots are rendered from the game's own assets with Filament's WebAssembly build in headless Chromium,
+<sub>Screenshots are rendered from the game's own assets and shaders with WebGL 2 in headless Chromium,
 see `tools/preview`. The steering wheel and HUD in them are an approximation of the Android overlay.</sub>
 
 ## Cars
@@ -67,12 +67,12 @@ cut in briefly. `gradle sound` in `tools/preview` renders a full-throttle run of
 
 ## Graphics
 
-Rendering uses [Filament](https://github.com/google/filament), Google's physically based
-rendering engine, running on its OpenGL ES 3 backend:
-PBR materials (clear-coated paint, glass, chrome, rubber), a sun with cascaded
-soft shadows, an HDR sky that lights the scene and reflects in the paint, ambient occlusion,
-bloom, distance fog, 4x MSAA and filmic tone mapping. The world and cars are still generated in
-code, then handed to Filament as glTF with tiling grass and asphalt textures.
+Rendering is plain OpenGL ES 3.0 with the game's own shaders (`GlShaders.kt`), physically
+based and in physical light units: a sun with soft shadows from two shadow-map cascades, an HDR
+sky that lights the scene (spherical harmonics) and reflects in paint and glass, clear-coated
+paint, chrome, textured grass and asphalt, soft contact shadows under the cars, height fog colored
+by the sky, glowing brake lights, 4x MSAA and filmic tone mapping. The world and cars are
+generated in code as glTF, which the renderer loads like any other model.
 
 ### Real car models
 
@@ -92,20 +92,24 @@ put it in the app as glTF binary and it replaces the generated body:
 
 The model should be in meters, nose towards +Z, Y up, origin on the ground under the car's
 center. It brings its own wheels (the generated ones are hidden), and every material with
-"paint" in its name gets the driver's color.
+"paint" in its name gets the driver's color. The renderer reads positions, normals, vertex
+colors, base color textures and metallic/roughness/clear-coat/emission values; normal and
+roughness maps are ignored.
 
 ## Tech
 
-Plain Kotlin, Filament for rendering, no game engine. All geometry (terrain, track, trees,
+Plain Kotlin and OpenGL ES 3.0, no game engine or rendering library. All geometry (terrain, track, trees,
 grandstand, cars) is generated in code.
 
 | File | What it does |
 |---|---|
-| `MainActivity.kt` | Fullscreen landscape activity: Filament surface + control overlay |
+| `MainActivity.kt` | Fullscreen landscape activity: OpenGL surface + control overlay |
 | `ControlOverlayView.kt` | Steering wheel touch control, car picker and HUD |
-| `FilamentRenderer.kt` | Filament setup (lights, sky, post-processing), loads the glTF assets, frame loop |
+| `GlRenderer.kt` | OpenGL ES 3 renderer: shadow passes, sky, models; frame loop |
+| `GlShaders.kt` | GLSL shaders: PBR sun and sky light, shadows, clear coat, fog, tone mapping |
+| `Gltf.kt` | Reads glTF binaries (generated assets and real models) |
 | `GameLoop.kt` | Steps the simulation each frame and publishes HUD values |
-| `Scene.kt` | Assets, chase camera and per-frame car/wheel transforms (engine independent) |
+| `Scene.kt` | Assets, chase camera, shadow cascades and per-frame car/wheel transforms |
 | `Glb.kt` | Writes the procedural meshes as glTF with PBR materials and detail textures |
 | `SkyEnvironment.kt` | Procedural HDR sky: skybox, reflections and diffuse light |
 | `GameState.kt` | Race simulation: car choice, AI drivers, grid and countdown, collisions, laps, ranking |

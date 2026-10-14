@@ -103,7 +103,7 @@ object SkyEnvironment {
     }
 
     /**
-     * Diffuse sky light as 9 RGB spherical-harmonics coefficients in the form Filament expects:
+     * Diffuse sky light as 9 RGB spherical-harmonics coefficients in the form the shader evaluates:
      * already convolved with the cosine lobe, divided by pi, with the basis constants folded in.
      */
     fun irradianceSh(): FloatArray {
@@ -130,7 +130,7 @@ object SkyEnvironment {
             weightSum += w
         }
         val norm = 4 * PI / weightSum
-        // Lambertian band factors A_l / pi, and the basis constants again for Filament's polynomial form.
+        // Lambertian band factors A_l / pi, and the basis constants again for the shader's polynomial form.
         val a = doubleArrayOf(1.0, 2.0 / 3, 2.0 / 3, 2.0 / 3, 0.25, 0.25, 0.25, 0.25, 0.25)
         val k = doubleArrayOf(0.282095, 0.488603, 0.488603, 0.488603, 1.092548, 1.092548, 0.315392, 1.092548, 0.546274)
         return FloatArray(27) { j -> (sh[j] * norm * a[j / 3] * k[j / 3]).toFloat() }

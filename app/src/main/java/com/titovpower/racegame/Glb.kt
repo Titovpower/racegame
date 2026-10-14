@@ -24,8 +24,8 @@ enum class Surfacing {
 class GlbPart(val name: String, val data: FloatArray, val surfacing: Surfacing = Surfacing.AUTO)
 
 /**
- * Writes binary glTF 2.0 (.glb) from [MeshBuilder] data, so the rendering engine (Filament's
- * glTF loader) can draw the procedural meshes with physically based materials. Each part becomes
+ * Writes binary glTF 2.0 (.glb) from [MeshBuilder] data, so the renderer loads the procedural
+ * meshes like any real model, with physically based materials. Each part becomes
  * a node; triangles are grouped into primitives by material. Vertex colors (sRGB in the builder)
  * are converted to linear COLOR_0.
  */

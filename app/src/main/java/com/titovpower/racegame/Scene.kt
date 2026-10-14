@@ -13,7 +13,8 @@ class CarPose(val asset: String, val model: FloatArray, val braking: Boolean)
 /**
  * What to draw and from where, independent of the rendering engine: the 3D assets (as glTF
  * binaries, generated from the procedural meshes), the chase camera, and each frame's car and
- * wheel transforms. The Filament renderer and the offline preview both consume this.
+ * wheel transforms, the sun's shadow cascades. The OpenGL renderer and the offline preview both
+ * consume this.
  */
 class Scene(private val game: GameState) {
     /**
@@ -137,6 +138,63 @@ class Scene(private val game: GameState) {
         Matrix.multiplyMM(shifted, 0, shiftM, 0, proj, 0)
         Matrix.setLookAtM(view, 0, camX, camY, camZ, targetX, targetY, targetZ, 0f, 1f, 0f)
         Matrix.multiplyMM(viewProj, 0, shifted, 0, view, 0)
+        // The sky only turns with the camera: drop the translation, then invert.
+        System.arraycopy(view, 0, tmp16, 0, 16)
+        tmp16[12] = 0f; tmp16[13] = 0f; tmp16[14] = 0f
+        Matrix.multiplyMM(tmp16b, 0, shifted, 0, tmp16, 0)
+        Matrix.invertM(skyInvViewProj, 0, tmp16b, 0)
+        updateShadows(if (game.phase == GameState.Phase.PICKING) 0f else 16f)
+    }
+
+    private val tmp16 = FloatArray(16)
+    private val tmp16b = FloatArray(16)
+    /** Inverse of the camera's rotation-only view-projection, for drawing the sky. */
+    val skyInvViewProj = FloatArray(16)
+
+    /** Sun shadow cascades: a sharp one around where the camera looks, and a coarse wide one. */
+    val nearLightViewProj = FloatArray(16)
+    val farLightViewProj = FloatArray(16)
+    /** Changes whenever the far cascade moves; it only needs redrawing then (it holds the static world). */
+    var farCascadeVersion = 0
+        private set
+    private var farX = Float.NaN
+    private var farZ = Float.NaN
+    private val lightView = FloatArray(16).also {
+        Matrix.setLookAtM(it, 0, SUN.x * 500f, SUN.y * 500f, SUN.z * 500f, 0f, 0f, 0f, 0f, 1f, 0f)
+    }
+
+    private fun updateShadows(ahead: Float) {
+        val car = game.car
+        cascade(nearLightViewProj, car.x + sin(camYaw) * ahead, car.z + cos(camYaw) * ahead, NEAR_SHADOW_EXTENT, 150f)
+        val fx = Math.round(car.x / FAR_SHADOW_STEP) * FAR_SHADOW_STEP
+        val fz = Math.round(car.z / FAR_SHADOW_STEP) * FAR_SHADOW_STEP
+        if (fx != farX || fz != farZ) {
+            farX = fx
+            farZ = fz
+            cascade(farLightViewProj, fx, fz, FAR_SHADOW_EXTENT, 300f)
+            farCascadeVersion++
+        }
+    }
+
+    /** Orthographic sun view of a square [extent] meters around (x, z), snapped to whole texels so edges don't shimmer. */
+    private fun cascade(out: FloatArray, x: Float, z: Float, extent: Float, depth: Float) {
+        tmp4[0] = x; tmp4[1] = 0f; tmp4[2] = z; tmp4[3] = 1f
+        Matrix.multiplyMV(clip4, 0, lightView, 0, tmp4, 0)
+        val texel = 2f * extent / SHADOW_MAP_SIZE
+        val cx = Math.round(clip4[0] / texel) * texel
+        val cy = Math.round(clip4[1] / texel) * texel
+        Matrix.orthoM(tmp16, 0, cx - extent, cx + extent, cy - extent, cy + extent, -clip4[2] - depth, -clip4[2] + depth)
+        Matrix.multiplyMM(out, 0, tmp16, 0, lightView, 0)
+    }
+
+    /** Per car: x, z, sin(yaw), cos(yaw), for the soft contact shadows under them. */
+    fun carFootprints(): FloatArray {
+        val out = FloatArray(game.racers.size * 4)
+        for ((k, r) in game.racers.withIndex()) {
+            out[k * 4] = r.car.x; out[k * 4 + 1] = r.car.z
+            out[k * 4 + 2] = sin(r.car.yaw); out[k * 4 + 3] = cos(r.car.yaw)
+        }
+        return out
     }
 
     private val tmp4 = FloatArray(4)
@@ -210,7 +268,7 @@ class Scene(private val game: GameState) {
         /** Direction towards the sun. */
         val SUN = V3(0.55f, 0.52f, 0.65f).normalized()
 
-        // Photometric setup (physical units, as Filament uses them).
+        // Photometric setup (physical units, scaled by the camera exposure).
         /** Sun illuminance, lux. */
         const val SUN_LUX = 100_000f
         /** Sky (image-based light and skybox) intensity, cd/m² for sky radiance 1. */
@@ -220,5 +278,16 @@ class Scene(private val game: GameState) {
         const val ISO = 100f
         /** Cubemap resolution of the sky. */
         const val SKY_SIZE = 256
+        /** Camera exposure: 1 / (1.2 x 2^EV100), EV100 from aperture, shutter and ISO. */
+        val EXPOSURE = (1.0 / (1.2 * APERTURE * APERTURE / SHUTTER * 100.0 / ISO)).toFloat()
+
+        /** Height fog: start distance (m), density, height falloff, maximum opacity. */
+        val FOG = floatArrayOf(60f, 0.0007f, 0.02f, 0.85f)
+
+        const val SHADOW_MAP_SIZE = 2048
+        /** Half-widths of the shadow cascades, meters. */
+        const val NEAR_SHADOW_EXTENT = 36f
+        const val FAR_SHADOW_EXTENT = 230f
+        const val FAR_SHADOW_STEP = 20f
     }
 }

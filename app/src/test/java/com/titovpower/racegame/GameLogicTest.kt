@@ -294,10 +294,35 @@ class GameLogicTest {
     }
 
     @Test
+    fun glbAssetsReadBackForTheRenderer() {
+        val b = MeshBuilder()
+        b.box(0f, 1f, 0f, 1f, 1f, 1f, Rgb(1f, 0f, 0f))
+        val model = Gltf.parse(Glb.write(listOf(GlbPart("box", b.toArray()), GlbPart(Scene.LIGHTS_NODE, b.toArray(), Surfacing.LAMP))))
+        assertEquals(2, model.primitives.size)
+        val box = model.primitives[0]
+        assertEquals("box", box.node)
+        assertEquals(36, box.indices.size)
+        // Red in linear, alpha 1; the box spans y 0..2.
+        assertEquals(1f, box.colors!![0], 0.01f)
+        assertEquals(0f, box.colors[1], 0.01f)
+        assertEquals(2f, (0 until box.positions.size / 3).maxOf { box.positions[it * 3 + 1] }, 1e-4f)
+        assertEquals("LAMP", model.materials[model.primitives[1].material].name)
+        // Triangles wind counter-clockwise around their normals (the renderer culls back faces).
+        for (t in 0 until 12) {
+            val (i0, i1, i2) = Triple(box.indices[t * 3] * 3, box.indices[t * 3 + 1] * 3, box.indices[t * 3 + 2] * 3)
+            val p = box.positions
+            val e1 = V3(p[i1] - p[i0], p[i1 + 1] - p[i0 + 1], p[i1 + 2] - p[i0 + 2])
+            val e2 = V3(p[i2] - p[i0], p[i2 + 1] - p[i0 + 1], p[i2 + 2] - p[i0 + 2])
+            val n = V3(box.normals[i0], box.normals[i0 + 1], box.normals[i0 + 2])
+            assertTrue(e1.cross(e2).dot(n) > 0f)
+        }
+    }
+
+    @Test
     fun skyLightIsBrighterFromAbove() {
         val sh = SkyEnvironment.irradianceSh()
         // Irradiance up (y = 1) vs. down: band 1 index 1 is the y term.
-        // Filament's polynomial form at n = (0, +-1, 0): sh0 +- sh1 - sh6 - sh8 (red channel).
+        // the polynomial form at n = (0, +-1, 0): sh0 +- sh1 - sh6 - sh8 (red channel).
         val up = sh[0] + sh[3] - sh[18] - sh[24]
         val down = sh[0] - sh[3] - sh[18] - sh[24]
         assertTrue("up=$up down=$down", up > down && down > 0f)
