@@ -114,9 +114,11 @@ object CarModel {
     )
     val AUDI = CarStyle(
         "r8", 4.43f, 0.97f, 1.34f, -1.31f, 0.32f, 0.42f,
-        listOf(2.21f to 0.45f, 2.05f to 0.58f, 1.5f to 0.7f, 0.85f to 0.82f, 0.2f to 0.84f, -0.65f to 0.88f, -0.95f to 1.0f, -1.85f to 1.02f, -2.15f to 1.0f, -2.21f to 0.88f),
+        // From reference photos (R8 V10 GT): blunt nose with a wide hexagonal grille, raked windshield,
+        // high engine deck, black side blades, a fixed wing on stalks.
+        listOf(2.21f to 0.56f, 2.08f to 0.66f, 1.5f to 0.74f, 0.85f to 0.83f, 0.2f to 0.86f, -0.65f to 0.9f, -0.95f to 1.0f, -1.85f to 1.03f, -2.15f to 1.0f, -2.21f to 0.86f),
         windshieldZ = 0.85f, roofFrontZ = 0f, roofRearZ = -0.65f, rearGlassZ = -1.0f, roofY = 1.24f,
-        grille = CarStyle.Grille.SINGLEFRAME, headlights = CarStyle.Headlights.SLIM, wing = CarStyle.Wing.LIP,
+        grille = CarStyle.Grille.SINGLEFRAME, headlights = CarStyle.Headlights.SWEPT, wing = CarStyle.Wing.SWAN_NECK,
         exhaust = CarStyle.Exhaust.OVAL_PAIR, taillights = CarStyle.Taillights.SLIM_PAIR, sideBlade = true,
         hoodDip = 0.04f, hipRise = 0.04f, frontWidth = 0.97f, cabinBase = 0.78f, cabinTop = 0.55f,
     )
@@ -249,6 +251,12 @@ object CarModel {
         exhaust(b, st)
         tailHousings(b, st)
         if (st.grille == CarStyle.Grille.ASTON) astonDetails(b, st)
+        if (st.grille == CarStyle.Grille.SINGLEFRAME) {
+            // R8 rear: a black mesh band across the whole tail under the lights.
+            val zr = st.rear - 0.005f
+            b.gloss = 0.3f
+            plate(b, listOf(-(st.halfWidth - 0.12f) to 0.3f, st.halfWidth - 0.12f to 0.3f, st.halfWidth - 0.1f to 0.62f, -(st.halfWidth - 0.1f) to 0.62f), zr - 0.06f, zr - 0.02f, TRIM)
+        }
         // Side mirrors on short stalks at the base of the A-pillars.
         for (side in floatArrayOf(-1f, 1f)) {
             val z = st.windshieldZ - 0.18f
@@ -277,9 +285,16 @@ object CarModel {
                 )
             }
             if (st.sideBlade) {
-                // Contrasting vertical blade behind the doors.
-                b.gloss = 0.5f
-                b.orientedBox(V3(x, 0.6f, st.rearAxle + 0.62f), V3(0.02f, 0f, 0f), V3(0f, 0.26f, 0f), V3(0f, 0.02f, 0.14f), CARBON)
+                // The big black side blade behind the doors, from the sill up to the shoulder.
+                b.gloss = 0.6f
+                val z0 = st.rearAxle + ARCH_RADIUS + 0.1f
+                b.hexahedron(
+                    arrayOf(
+                        V3(x - side * 0.03f, 0.36f, z0), V3(x + side * 0.012f, 0.36f, z0), V3(x + side * 0.012f, 0.36f, z0 + 0.42f), V3(x - side * 0.03f, 0.36f, z0 + 0.42f),
+                        V3(x - side * 0.06f, 0.84f, z0 + 0.06f), V3(x - side * 0.02f, 0.84f, z0 + 0.06f), V3(x - side * 0.02f, 0.84f, z0 + 0.5f), V3(x - side * 0.06f, 0.84f, z0 + 0.5f),
+                    ),
+                    TRIM,
+                )
             }
         }
         b.gloss = 0f
@@ -438,9 +453,14 @@ object CarModel {
                 }
             }
             CarStyle.Grille.SINGLEFRAME -> {
-                plate(b, listOf(-0.28f to 0.29f, 0.28f to 0.29f, 0.36f to 0.37f, 0.3f to 0.46f, -0.3f to 0.46f, -0.36f to 0.37f), zf - 0.2f, zf - 0.02f, TRIM)
+                // Wide, flat hexagonal grille and big angular corner intakes, all black honeycomb.
+                plate(b, listOf(-0.4f to 0.28f, 0.4f to 0.28f, 0.47f to 0.36f, 0.42f to 0.54f, -0.42f to 0.54f, -0.47f to 0.36f), zf - 0.2f, zf - 0.005f, TRIM)
                 for (side in floatArrayOf(-1f, 1f)) {
-                    plate(b, listOf(side * 0.5f to 0.29f, side * 0.78f to 0.29f, side * 0.74f to 0.38f, side * 0.52f to 0.4f), zf - 0.25f, zf - 0.07f, TRIM)
+                    plate(b, listOf(side * 0.56f to 0.28f, side * 0.84f to 0.28f, side * 0.86f to 0.4f, side * 0.62f to 0.5f), zf - 0.28f, zf - 0.04f, TRIM)
+                    // Canards on the bumper corners.
+                    b.gloss = 0.5f
+                    b.orientedBox(V3(side * 0.82f, 0.36f, zf - 0.12f), V3(0.08f, side * 0.03f, 0f), V3(0f, 0.006f, 0f), V3(0f, 0f, 0.06f), CARBON)
+                    b.gloss = 0.3f
                 }
             }
             CarStyle.Grille.ASTON -> {
