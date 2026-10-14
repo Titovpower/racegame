@@ -31,6 +31,11 @@ class MeshBuilder(initialCapacity: Int = 4096) {
         data[size++] = v
     }
 
+    /** Adds vertex data from another builder. */
+    fun append(other: FloatArray) {
+        for (v in other) put(v)
+    }
+
     fun vertex(p: V3, n: V3, c: Rgb, g: Float = gloss) {
         put(p.x); put(p.y); put(p.z)
         put(n.x); put(n.y); put(n.z)

@@ -51,9 +51,10 @@ fun main(args: Array<String>) {
         val car = game.car
         val a = car.yaw + Math.toRadians(deg.toDouble()).toFloat()
         val dist = (System.getenv("PREVIEW_DIST") ?: "6.5").toFloat()
-        cam = floatArrayOf(car.x + sin(a) * dist, 1.7f, car.z + cos(a) * dist)
+        val camY = (System.getenv("PREVIEW_CAMY") ?: "1.7").toFloat()
+        cam = floatArrayOf(car.x + sin(a) * dist, camY, car.z + cos(a) * dist)
         target = floatArrayOf(car.x, 0.55f, car.z)
-        android.opengl.Matrix.perspectiveM(projection, 0, 45f, aspect, Scene.NEAR, Scene.FAR)
+        android.opengl.Matrix.perspectiveM(projection, 0, (System.getenv("PREVIEW_FOV") ?: "45").toFloat(), aspect, Scene.NEAR, Scene.FAR)
     }
     // Camera matrices as the renderer builds them (the sky only turns with the camera).
     val view = FloatArray(16)
@@ -71,8 +72,11 @@ fun main(args: Array<String>) {
         "skyVertex" to GlShaders.SKY_VERTEX, "skyFragment" to GlShaders.SKY_FRAGMENT,
         "shadowVertex" to GlShaders.SHADOW_VERTEX, "shadowFragment" to GlShaders.SHADOW_FRAGMENT,
     ).joinToString(",", "{", "}") { (k, v) -> "\"$k\":${str(v)}" }
-    val cars = scene.cars().joinToString(",", "[", "]") { """{"asset":"${it.asset}","model":${arr(it.model)},"braking":${it.braking}}""" }
-    val wheels = scene.wheels().joinToString(",", "[", "]") { arr(it) }
+    // PREVIEW_SOLO: only the player's car (racer 0 is the player) for model reference shots.
+    val solo = System.getenv("PREVIEW_SOLO") != null
+    val pIdx = game.racers.indexOf(game.player)
+    val cars = scene.cars().filterIndexed { k, _ -> !solo || k == pIdx }.joinToString(",", "[", "]") { """{"asset":"${it.asset}","model":${arr(it.model)},"braking":${it.braking}}""" }
+    val wheels = scene.wheels().filterIndexed { k, _ -> !solo || k / 4 == pIdx }.joinToString(",", "[", "]") { arr(it) }
     val sb = StringBuilder()
     sb.append("""{"shaders":$shaders,"viewProj":${arr(viewProj)},"skyInvViewProj":${arr(skyInv)},""")
     sb.append(""""lightVP0":${arr(scene.nearLightViewProj)},"lightVP1":${arr(scene.farLightViewProj)},"shadowSize":${Scene.SHADOW_MAP_SIZE},""")
