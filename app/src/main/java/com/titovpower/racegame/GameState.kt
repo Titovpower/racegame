@@ -20,6 +20,8 @@ class Racer(
     val car: CarPhysics,
     startIndex: Int,
 ) {
+    val spec get() = car.spec
+
     var surface = Surface.STREET
         internal set
     var braking = false
@@ -47,13 +49,20 @@ class Racer(
 }
 
 /** A standings row, as shown in the HUD. */
-class Standing(val name: String, val color: Int, val isPlayer: Boolean, val finished: Boolean)
+class Standing(val name: String, val car: String, val color: Int, val isPlayer: Boolean, val finished: Boolean)
 
 /**
  * Race simulation: the player plus AI opponents on one track, independent of rendering.
  * Starts with a countdown, runs [totalLaps] laps, and ranks racers by how far they have got.
  */
 class GameState(val world: World, val opponents: Int = 8, val totalLaps: Int = 5) {
+    enum class Phase { PICKING, COUNTDOWN, RACING }
+
+    var phase = Phase.PICKING
+        private set
+    /** The car the player drives, chosen before the race. */
+    var playerSpec = CarSpec.PORSCHE
+        private set
     val racers = ArrayList<Racer>()
     lateinit var player: Racer
         private set
@@ -79,45 +88,59 @@ class GameState(val world: World, val opponents: Int = 8, val totalLaps: Int = 5
         reset()
     }
 
-    /** Puts everyone back on the grid and restarts the countdown. */
+    /** Puts everyone back on the grid; the race starts with [startRace]. */
     fun reset() {
         racers.clear()
         val track = world.track
         val n = track.samples
-        // Two-column grid behind the start line; the player starts at the back.
+        // Two-column grid just past the finish line, so the next five crossings are the five laps.
+        // The player starts at the back.
         val count = opponents + 1
+        val rows = (count + 1) / 2
         for (slot in 0 until count) {
             val row = slot / 2
-            val idx = (n - 5 - row * 5) % n
+            val idx = (4 + (rows - 1 - row) * 6) % n
             val t = track.tangent(idx)
             val side = if (slot % 2 == 0) 2.8f else -2.8f
             val x = track.xs[idx] + t.z * side
             val z = track.zs[idx] - t.x * side
-            val car = CarPhysics(x, z, track.headingAt(idx))
             val racer = if (slot == count - 1) {
-                Racer("YOU", PLAYER_COLOR, true, 1f, 0f, car, idx)
+                Racer("YOU", PLAYER_COLOR, true, 1f, 0f, CarPhysics(x, z, track.headingAt(idx), playerSpec), idx)
             } else {
                 val d = DRIVERS[slot % DRIVERS.size]
-                Racer(d.name, d.color, false, d.skill, d.lane, car, idx)
+                Racer(d.name, d.color, false, d.skill, d.lane, CarPhysics(x, z, track.headingAt(idx), d.spec), idx)
             }
-            racer.progress = -lapFraction(idx)
+            racer.progress = idx.toFloat() / n
             racers.add(racer)
         }
         player = racers.last()
+        phase = Phase.PICKING
         countdown = COUNTDOWN
         raceTime = 0f
         updateStandings()
     }
 
-    /** Fraction of a lap from sample [idx] to the start line. */
-    private fun lapFraction(idx: Int) = (world.track.samples - idx).toFloat() / world.track.samples
+    /** Before the race: switch the player's car to the next (+1) or previous (-1) model. */
+    fun cycleCar(delta: Int) {
+        if (phase != Phase.PICKING) return
+        val all = CarSpec.ALL
+        playerSpec = all[(all.indexOf(playerSpec) + delta + all.size) % all.size]
+        player.car.spec = playerSpec
+    }
+
+    fun startRace() {
+        if (phase == Phase.PICKING) phase = Phase.COUNTDOWN
+    }
 
     fun update(dt: Float, steer: Float, throttle: Float, brake: Float) {
-        if (countdown > 0f) {
+        if (phase == Phase.PICKING) return
+        if (phase == Phase.COUNTDOWN) {
             countdown -= dt
             // Engines rev, but nobody moves until the lights go out.
             for (r in racers) r.braking = true
-            return
+            if (countdown > 0f) return
+            countdown = 0f
+            phase = Phase.RACING
         }
         raceTime += dt
         for (r in racers) {
@@ -178,13 +201,11 @@ class GameState(val world: World, val opponents: Int = 8, val totalLaps: Int = 5
 
         val before = r.progress
         r.progress += delta.toFloat() / n
-        if (before >= 0f) r.lapTime += dt
-        // Crossing the line forwards: a new lap starts (and the previous one, if any, is done).
-        if (kotlin.math.floor(r.progress) > kotlin.math.floor(before) && r.progress >= 0f) {
-            if (before >= 0f) {
-                r.lastLap = r.lapTime
-                if (r.bestLap == 0f || r.lapTime < r.bestLap) r.bestLap = r.lapTime
-            }
+        r.lapTime += dt
+        // Crossing the finish line forwards completes a lap.
+        if (kotlin.math.floor(r.progress) > kotlin.math.floor(before) && r.progress >= 1f) {
+            r.lastLap = r.lapTime
+            if (r.bestLap == 0f || r.lapTime < r.bestLap) r.bestLap = r.lapTime
             r.lapTime = 0f
             if (r.progress >= totalLaps) r.finishTime = raceTime
         }
@@ -225,12 +246,13 @@ class GameState(val world: World, val opponents: Int = 8, val totalLaps: Int = 5
         val steer = clamp(-diff * 2.6f, -1f, 1f)
 
         // Look a little ahead on the speed profile; slower when off the road.
-        var target = track.safeSpeed[(r.trackIndex + 3) % n] * r.skill
-        if (r.surface == Surface.GRASS) target = minOf(target, Surface.GRASS.maxSpeed)
+        var target = track.safeSpeed(r.spec)[(r.trackIndex + 3) % n] * r.skill
+        if (r.surface == Surface.GRASS) target = minOf(target, 22f)
         return when {
             speed < target - 0.5f -> Triple(steer, clamp((target - speed) / 4f, 0.3f, 1f), 0f)
             speed > target + 1.5f -> Triple(steer, 0f, clamp((speed - target) / 6f, 0.2f, 1f))
-            else -> Triple(steer, 0.35f, 0f)
+            // Hold speed: just enough throttle to beat drag.
+            else -> Triple(steer, clamp(r.spec.resistance(speed, r.surface) * r.spec.massKg * maxOf(speed, 3f) / r.spec.wheelPower, 0.05f, 1f), 0f)
         }
     }
 
@@ -277,9 +299,9 @@ class GameState(val world: World, val opponents: Int = 8, val totalLaps: Int = 5
         )
     }
 
-    fun standingsSnapshot(): List<Standing> = standings.map { Standing(it.name, it.color, it.isPlayer, it.finished) }
+    fun standingsSnapshot(): List<Standing> = standings.map { Standing(it.name, it.spec.brand, it.color, it.isPlayer, it.finished) }
 
-    private class Driver(val name: String, val color: Int, val skill: Float, val lane: Float)
+    private class Driver(val name: String, val spec: CarSpec, val color: Int, val skill: Float, val lane: Float)
 
     companion object {
         const val CAR_RADIUS = 1.1f
@@ -287,14 +309,14 @@ class GameState(val world: World, val opponents: Int = 8, val totalLaps: Int = 5
         const val PLAYER_COLOR = 0xC8102E
 
         private val DRIVERS = listOf(
-            Driver("Rossi", 0x1565C0, 0.97f, 1.2f),
-            Driver("Becker", 0xF9A825, 0.95f, -1.5f),
-            Driver("Silva", 0x2E7D32, 0.94f, 2.0f),
-            Driver("Novak", 0xEEEEEE, 0.92f, -0.6f),
-            Driver("Tanaka", 0x6A1B9A, 0.90f, 0.8f),
-            Driver("Dubois", 0xEF6C00, 0.88f, -2.2f),
-            Driver("Moreau", 0x00838F, 0.86f, 1.6f),
-            Driver("Kowalski", 0x90A4AE, 0.83f, -1.0f),
+            Driver("Rossi", CarSpec.LAMBORGHINI, 0x6DAA2C, 0.97f, 1.2f),
+            Driver("Becker", CarSpec.PORSCHE, 0xB9BEC4, 0.96f, -1.5f),
+            Driver("Silva", CarSpec.AUDI, 0x1F4E9A, 0.95f, 2.0f),
+            Driver("Novak", CarSpec.MERCEDES, 0x4C6B3C, 0.93f, -0.6f),
+            Driver("Tanaka", CarSpec.ASTON, 0x0E4D3B, 0.92f, 0.8f),
+            Driver("Dubois", CarSpec.BMW, 0xE3B92C, 0.90f, -2.2f),
+            Driver("Moreau", CarSpec.LAMBORGHINI, 0xF28C00, 0.88f, 1.6f),
+            Driver("Kowalski", CarSpec.BMW, 0xEDEDED, 0.86f, -1.0f),
         )
     }
 }

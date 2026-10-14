@@ -9,14 +9,33 @@ import kotlin.math.abs
 import kotlin.math.atan2
 
 class GameLogicTest {
-    private fun speedAfter(seconds: Float, surface: Surface, throttle: Float = 1f): Float {
-        val car = CarPhysics()
+    private fun speedAfter(seconds: Float, surface: Surface, spec: CarSpec = CarSpec.PORSCHE, throttle: Float = 1f): Float {
+        val car = CarPhysics(spec = spec)
         var t = 0f
         while (t < seconds) {
-            car.update(0.01f, 0f, throttle, 0f, surface)
-            t += 0.01f
+            car.update(0.005f, 0f, throttle, 0f, surface)
+            t += 0.005f
         }
         return car.speed
+    }
+
+    private fun zeroTo100(spec: CarSpec): Float {
+        val car = CarPhysics(spec = spec)
+        var t = 0f
+        while (car.speed < 100f / 3.6f && t < 30f) {
+            car.update(0.005f, 0f, 1f, 0f, Surface.STREET)
+            t += 0.005f
+        }
+        return t
+    }
+
+    @Test
+    fun everyCarMatchesItsPublishedFigures() {
+        for (spec in CarSpec.ALL) {
+            assertEquals("${spec.brand} 0-100", spec.zeroTo100, zeroTo100(spec), 0.15f)
+            val top = speedAfter(200f, Surface.STREET, spec) * 3.6f
+            assertEquals("${spec.brand} top speed", spec.topSpeedKmh, top, 6f)
+        }
     }
 
     @Test
@@ -25,9 +44,8 @@ class GameLogicTest {
     }
 
     @Test
-    fun topSpeedIsLimitedBySurface() {
-        assertTrue(speedAfter(60f, Surface.STREET) <= Surface.STREET.maxSpeed + 0.01f)
-        assertTrue(speedAfter(60f, Surface.GRASS) <= Surface.GRASS.maxSpeed + 0.01f)
+    fun grassLimitsTopSpeed() {
+        assertTrue(speedAfter(60f, Surface.GRASS) * 3.6f < 110f)
     }
 
     private fun brakingDistance(surface: Surface): Float {
@@ -45,22 +63,28 @@ class GameLogicTest {
         val street = brakingDistance(Surface.STREET)
         val grass = brakingDistance(Surface.GRASS)
         assertTrue("street=$street grass=$grass", grass > street * 1.5f)
+        // 100 km/h to 0 in a realistic ~30-35 m for a sports car on asphalt.
+        val car = CarPhysics()
+        car.speed = 100f / 3.6f
+        var d = 0f
+        while (car.speed > 0f) { val z = car.z; car.update(0.005f, 0f, 0f, 1f, Surface.STREET); d += car.z - z }
+        assertTrue("100-0 in $d m", d in 25f..40f)
     }
 
     @Test
     fun brakeStopsTheCar() {
         val car = CarPhysics()
         car.speed = 15f
-        repeat(80) { car.update(0.01f, 0f, 0f, 1f, Surface.STREET) }
-        assertEquals(0f, car.speed, 0.001f)
+        repeat(150) { car.update(0.01f, 0f, 0f, 1f, Surface.STREET) }
+        assertTrue(car.speed <= 0f)
     }
 
     @Test
     fun holdingBrakeWhileStoppedReverses() {
         val car = CarPhysics()
-        repeat(200) { car.update(0.01f, 0f, 0f, 1f, Surface.STREET) }
+        repeat(300) { car.update(0.01f, 0f, 0f, 1f, Surface.STREET) }
         assertTrue(car.speed < 0f)
-        assertTrue(car.speed >= -Surface.STREET.maxReverse - 0.01f)
+        assertTrue(car.speed >= -CarPhysics.MAX_REVERSE - 0.01f)
     }
 
     private fun yawChange(surface: Surface): Float {
@@ -76,7 +100,7 @@ class GameLogicTest {
         val grass = yawChange(Surface.GRASS)
         // Facing +z, right is -x: yaw decreases.
         assertTrue(street < 0f)
-        assertTrue(abs(grass) < abs(street) * 0.7f)
+        assertTrue("street=$street grass=$grass", abs(grass) < abs(street) * 0.7f)
     }
 
     @Test
@@ -84,6 +108,24 @@ class GameLogicTest {
         val car = CarPhysics()
         repeat(100) { car.update(0.01f, 1f, 0f, 0f, Surface.STREET) }
         assertEquals(0f, car.yaw, 0f)
+    }
+
+    @Test
+    fun pickingACarBeforeTheRace() {
+        val game = GameState(World())
+        assertEquals(GameState.Phase.PICKING, game.phase)
+        // Nothing moves while picking.
+        val start = game.car.z
+        repeat(60) { game.update(1f / 60f, 0f, 1f, 0f) }
+        assertEquals(start, game.car.z, 0f)
+        game.cycleCar(1)
+        assertEquals(CarSpec.ALL[(CarSpec.ALL.indexOf(CarSpec.PORSCHE) + 1) % CarSpec.ALL.size], game.car.spec)
+        game.cycleCar(-2)
+        assertEquals(CarSpec.ALL[(CarSpec.ALL.indexOf(CarSpec.PORSCHE) - 1 + CarSpec.ALL.size) % CarSpec.ALL.size], game.playerSpec)
+        game.startRace()
+        assertEquals(GameState.Phase.COUNTDOWN, game.phase)
+        game.cycleCar(1) // ignored once the race is on
+        assertEquals(game.playerSpec, game.car.spec)
     }
 
     @Test
@@ -106,6 +148,7 @@ class GameLogicTest {
     @Test
     fun autopilotCompletesALapOnTheStreet() {
         val game = GameState(World(), opponents = 0)
+        game.startRace()
         val track = game.world.track
         var streetFrames = 0
         var frames = 0
@@ -117,17 +160,23 @@ class GameLogicTest {
             while (diff > PI) diff -= (2 * PI).toFloat()
             while (diff < -PI) diff += (2 * PI).toFloat()
             // Steering right lowers yaw, so steer against the yaw error.
-            game.update(1f / 60f, clamp(-diff * 3f, -1f, 1f), 0.5f, 0f)
+            // Keep under the track's safe speed for this car.
+            val safe = track.safeSpeed(car.spec)[(game.player.trackIndex + 3) % track.samples] * 0.9f
+            val fast = car.speed > safe
+            game.update(1f / 60f, clamp(-diff * 3f, -1f, 1f), if (fast) 0f else 0.7f, if (car.speed > safe + 2f) 0.5f else 0f)
             if (game.surface == Surface.STREET) streetFrames++
             frames++
         }
         assertTrue("lap not completed", game.lastLap > 0f)
-        assertTrue(streetFrames > frames * 0.95f)
+        assertTrue("street $streetFrames of $frames", streetFrames > frames * 0.95f)
+        // The grid is just past the line, so the first crossing is a full lap.
+        assertEquals(1, game.player.lapsDone)
     }
 
     @Test
     fun driveRadiusKeepsCarOffTheHills() {
         val game = GameState(World())
+        game.startRace()
         // Steer hard off the track at full throttle for a long time.
         repeat(6000) { game.update(1f / 60f, 1f, 1f, 0f) }
         assertTrue(game.world.track.nearest(game.car.x, game.car.z).distance <= game.world.driveRadius + 1f)
@@ -136,6 +185,7 @@ class GameLogicTest {
     @Test
     fun countdownHoldsEveryoneOnTheGrid() {
         val game = GameState(World())
+        game.startRace()
         val start = game.racers.map { it.car.x to it.car.z }
         repeat(120) { game.update(1f / 60f, 0f, 1f, 0f) }
         assertEquals(start, game.racers.map { it.car.x to it.car.z })
@@ -147,6 +197,7 @@ class GameLogicTest {
     @Test
     fun opponentsRaceCleanlyAndAreRankedByFinish() {
         val game = GameState(World())
+        game.startRace()
         val grassFrames = IntArray(game.racers.size)
         var frames = 0
         while (game.racers.any { !it.isPlayer && !it.finished } && frames < 60 * 400) {
@@ -164,13 +215,17 @@ class GameLogicTest {
         val finishers = game.standings.filter { it.finished }
         assertEquals(finishers.sortedBy { it.finishTime }, finishers)
         assertTrue(game.standings.last().isPlayer)
-        // Every lap took a plausible time.
-        for (r in ai) assertTrue("${r.name} best lap ${r.bestLap}", r.bestLap in 25f..90f)
+        // Five laps each, every lap a plausible time.
+        for (r in ai) {
+            assertTrue(r.progress >= 5f)
+            assertTrue("${r.name} best lap ${r.bestLap}", r.bestLap in 20f..90f)
+        }
     }
 
     @Test
     fun rankingFollowsDistanceCovered() {
         val game = GameState(World())
+        game.startRace()
         repeat(60 * 25) { game.update(1f / 60f, 0f, 0f, 0f) }
         val progress = game.standings.map { it.progress }
         assertEquals(progress.sortedDescending(), progress)

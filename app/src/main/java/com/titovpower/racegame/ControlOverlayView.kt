@@ -115,7 +115,9 @@ class ControlOverlayView(
                     val i = event.actionIndex
                     val x = event.getX(i)
                     val y = event.getY(i)
-                    if (telemetry.finished && hypot(x - cx, y - cy) > wheelRadius * 1.5f) {
+                    if (telemetry.picking) {
+                        pickerTouch(x, y)
+                    } else if (telemetry.finished && hypot(x - cx, y - cy) > wheelRadius * 1.5f) {
                         controls.restart = true
                     } else if (hypot(x - cx, y - cy) <= wheelRadius * 1.5f) {
                         activePointer = event.getPointerId(i)
@@ -140,6 +142,19 @@ class ControlOverlayView(
         return true
     }
 
+    /** Picker layout: arrows either side of the car name, START button below. */
+    private val leftArrow = RectF()
+    private val rightArrow = RectF()
+    private val startButton = RectF()
+
+    private fun pickerTouch(x: Float, y: Float) {
+        when {
+            leftArrow.contains(x, y) -> controls.pick.addAndGet(-1)
+            rightArrow.contains(x, y) -> controls.pick.addAndGet(1)
+            startButton.contains(x, y) -> controls.start = true
+        }
+    }
+
     private fun release() {
         activePointer = -1
         steer = 0f
@@ -154,6 +169,11 @@ class ControlOverlayView(
     }
 
     override fun onDraw(canvas: Canvas) {
+        if (telemetry.picking) {
+            drawPicker(canvas)
+            postInvalidateOnAnimation()
+            return
+        }
         drawHud(canvas)
         drawStandings(canvas)
         drawRaceMessages(canvas)
@@ -246,7 +266,7 @@ class ControlOverlayView(
         val pad = 12f * density
         val rowH = 17f * density
         val headerH = 20f * density
-        val panelW = 132f * density
+        val panelW = 196f * density
         val bottom = height - pad
         val top = bottom - headerH - rows.size * rowH - 6f * density
         rect.set(pad, top, pad + panelW, bottom)
@@ -267,6 +287,9 @@ class ControlOverlayView(
             dotPaint.color = Color.rgb((row.color shr 16) and 0xFF, (row.color shr 8) and 0xFF, row.color and 0xFF)
             canvas.drawCircle(pad + 36f * density, y0 + rowH / 2f, 5f * density, dotPaint)
             canvas.drawText(row.name, pad + 47f * density, baseline, rowPaint)
+            rowPaint.color = Color.argb(if (row.isPlayer) 230 else 170, 255, 255, 255)
+            canvas.drawText(row.car, pad + 112f * density, baseline, rowPaint)
+            rowPaint.color = Color.WHITE
             if (row.finished) {
                 rowPaint.textAlign = Paint.Align.RIGHT
                 canvas.drawText("\u2691", pad + panelW - 10f * density, baseline, rowPaint)
@@ -287,9 +310,101 @@ class ControlOverlayView(
             canvas.drawText("GO!", width / 2f, midY, bigPaint)
         }
         if (telemetry.finished) {
-            canvas.drawText("FINISHED P${telemetry.position}", width / 2f, midY, bigPaint)
-            canvas.drawText("Tap anywhere to race again", width / 2f, midY + 30f * density, hintPaint)
+            val y = drawWin(canvas) + 30f * density
+            labelPaint.textAlign = Paint.Align.CENTER
+            canvas.drawText(
+                "5 laps done · finished P${telemetry.position} in ${formatTime(telemetry.finishTime)}",
+                width / 2f, y, labelPaint,
+            )
+            labelPaint.textAlign = Paint.Align.LEFT
+            canvas.drawText("Tap anywhere to race again", width / 2f, y + 22f * density, hintPaint)
         }
+    }
+
+    private val arrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textAlign = Paint.Align.CENTER
+        typeface = Typeface.DEFAULT_BOLD
+    }
+    private val startPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(200, 16, 46) }
+    private val winPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.rgb(230, 20, 30)
+        textAlign = Paint.Align.CENTER
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD_ITALIC)
+    }
+    private val winOutline = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        style = Paint.Style.STROKE
+        textAlign = Paint.Align.CENTER
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD_ITALIC)
+    }
+
+    /** Car selection before the race: brand and model, real figures, and START. */
+    private fun drawPicker(canvas: Canvas) {
+        val spec = telemetry.carSpec
+        val d = density
+        val panelW = min(width * 0.62f, 460f * d)
+        val panelH = 150f * d
+        val left = (width - panelW) / 2f
+        val top = height - panelH - 16f * d
+        rect.set(left, top, left + panelW, top + panelH)
+        canvas.drawRoundRect(rect, 16f * d, 16f * d, panelPaint)
+
+        labelPaint.textAlign = Paint.Align.CENTER
+        speedPaint.textAlign = Paint.Align.CENTER
+        hintPaint.textAlign = Paint.Align.CENTER
+        canvas.drawText("CHOOSE YOUR CAR", width / 2f, top + 22f * d, hintPaint)
+        val oldSize = speedPaint.textSize
+        speedPaint.textSize = 26f * d
+        canvas.drawText(spec.brand.uppercase(Locale.US), width / 2f, top + 52f * d, speedPaint)
+        speedPaint.textSize = oldSize
+        canvas.drawText(spec.model, width / 2f, top + 72f * d, labelPaint)
+        val stats = String.format(
+            Locale.US, "%d hp   ·   0-100 km/h %.1f s   ·   %d km/h   ·   %s",
+            spec.powerHp, spec.zeroTo100, spec.topSpeedKmh.toInt(), if (spec.awd) "AWD" else "RWD",
+        )
+        canvas.drawText(stats, width / 2f, top + 94f * d, hintPaint)
+
+        // Arrows.
+        arrowPaint.textSize = 34f * d
+        leftArrow.set(left, top + 20f * d, left + 64f * d, top + 90f * d)
+        rightArrow.set(left + panelW - 64f * d, top + 20f * d, left + panelW, top + 90f * d)
+        canvas.drawText("◀", leftArrow.centerX(), leftArrow.centerY() + 12f * d, arrowPaint)
+        canvas.drawText("▶", rightArrow.centerX(), rightArrow.centerY() + 12f * d, arrowPaint)
+
+        // START button.
+        val bw = 150f * d
+        val bh = 34f * d
+        startButton.set(width / 2f - bw / 2f, top + panelH - bh - 10f * d, width / 2f + bw / 2f, top + panelH - 10f * d)
+        canvas.drawRoundRect(startButton, bh / 2f, bh / 2f, startPaint)
+        canvas.drawText("START RACE", width / 2f, startButton.centerY() + labelPaint.textSize * 0.35f, labelPaint)
+        labelPaint.textAlign = Paint.Align.LEFT
+        speedPaint.textAlign = Paint.Align.LEFT
+    }
+
+    /** Red "YOU WIN" popping up above the player's car after the last lap. */
+    private fun drawWin(canvas: Canvas): Float {
+        val age = telemetry.raceTime - telemetry.finishTime
+        // Pop: grow past full size, then settle.
+        val t = clamp(age / 0.45f, 0f, 1f)
+        val scale = if (t < 1f) {
+            val e = 1f - (1f - t) * (1f - t)
+            e * 1.25f
+        } else {
+            1f + 0.25f * kotlin.math.exp(-(age - 0.45f) * 8f)
+        }
+        val sx = telemetry.carScreenX
+        val sy = telemetry.carScreenY
+        val x = if (sx in 0f..1f) sx * width else width / 2f
+        val y = maxOf(if (sy in 0f..1f) sy * height else height * 0.35f, 80f * density)
+        val size = 64f * density * scale
+        winPaint.textSize = size
+        winOutline.textSize = size
+        winOutline.strokeWidth = size * 0.06f
+        winPaint.setShadowLayer(10f, 0f, 4f, Color.argb(160, 0, 0, 0))
+        canvas.drawText("YOU WIN", x, y, winOutline)
+        canvas.drawText("YOU WIN", x, y, winPaint)
+        return y
     }
 
     private fun formatTime(seconds: Float): String {

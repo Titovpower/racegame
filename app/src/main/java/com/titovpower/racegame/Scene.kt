@@ -33,7 +33,12 @@ class DrawParams {
 
 /** Receives the draw calls of one frame (the GL renderer, or the offline preview). */
 interface DrawSink {
-    fun beginFrame(viewProj: FloatArray, camX: Float, camY: Float, camZ: Float)
+    /** Starts the sun's depth pass; [drawShadowCaster] calls follow, then [beginFrame]. */
+    fun beginShadows(lightViewProj: FloatArray) {}
+
+    fun drawShadowCaster(mesh: String, model: FloatArray) {}
+
+    fun beginFrame(viewProj: FloatArray, camX: Float, camY: Float, camZ: Float, lightViewProj: FloatArray)
 
     /** [mesh] is a key of [Scene.meshes]. */
     fun draw(mesh: String, model: FloatArray, params: DrawParams)
@@ -54,15 +59,20 @@ class Scene(private val game: GameState) {
             MeshId.SHADOWS.name to SceneMeshes.shadows(w),
             MeshId.PROPS.name to SceneMeshes.props(w),
             MeshId.VEGETATION.name to SceneMeshes.vegetation(w),
-            MeshId.CAR_LIGHTS.name to CarModel.tailLights(),
             MeshId.WHEEL.name to CarModel.wheel(),
             MeshId.CAR_SHADOW.name to CarModel.shadow(),
         )
-        for (r in game.racers) m[bodyKey(r.color)] = CarModel.body(Rgb.hex(r.color))
+        val styles = CarSpec.ALL.map { CarModel.styleFor(it) }.distinct()
+        for (st in styles) m[lightsKey(st)] = CarModel.tailLights(st)
+        // The player can pick any model, so their paint gets every body style.
+        val bodies = game.racers.map { CarModel.styleFor(it.spec) to it.color } +
+            styles.map { it to GameState.PLAYER_COLOR }
+        for ((st, color) in bodies.distinct()) m[bodyKey(st, color)] = CarModel.body(st, Rgb.hex(color))
         m
     }
 
-    private fun bodyKey(color: Int) = MeshId.CAR_BODY.name + "_" + Integer.toHexString(color)
+    private fun bodyKey(st: CarStyle, color: Int) = MeshId.CAR_BODY.name + "_" + st.key + "_" + Integer.toHexString(color)
+    private fun lightsKey(st: CarStyle) = MeshId.CAR_LIGHTS.name + "_" + st.key
 
     private val proj = FloatArray(16)
     private val shiftedProj = FloatArray(16)
@@ -85,6 +95,10 @@ class Scene(private val game: GameState) {
     /** Moves the chase camera towards its target; dt = 0 snaps it there. */
     fun updateCamera(dt: Float, aspect: Float) {
         val car = game.car
+        if (game.phase == GameState.Phase.PICKING) {
+            showroomCamera(dt, aspect)
+            return
+        }
         if (!camInit || dt == 0f) {
             camYaw = car.yaw
         } else {
@@ -120,8 +134,71 @@ class Scene(private val game: GameState) {
         Matrix.multiplyMM(viewProj, 0, shiftedProj, 0, view, 0)
     }
 
+    private var orbit = 0f
+
+    /** Before the race: slowly circle the player's car so the chosen model can be admired. */
+    private fun showroomCamera(dt: Float, aspect: Float) {
+        val car = game.car
+        orbit += dt * 0.35f
+        val a = car.yaw + 2.4f + orbit
+        val dist = 6.8f
+        camX = car.x + sin(a) * dist
+        camZ = car.z + cos(a) * dist
+        camY = 1.9f
+        camInit = false
+        Matrix.perspectiveM(proj, 0, 50f, aspect, 0.3f, 1500f)
+        Matrix.setIdentityM(shift, 0)
+        Matrix.translateM(shift, 0, 0f, SCREEN_SHIFT * 0.6f, 0f)
+        Matrix.multiplyMM(shiftedProj, 0, shift, 0, proj, 0)
+        Matrix.setLookAtM(view, 0, camX, camY, camZ, car.x, 0.6f, car.z, 0f, 1f, 0f)
+        Matrix.multiplyMM(viewProj, 0, shiftedProj, 0, view, 0)
+    }
+
+    private val tmp4 = FloatArray(4)
+    private val clip4 = FloatArray(4)
+
+    /**
+     * Where a point [height] meters above the player's car lands on screen, as fractions of the
+     * width and height from the top-left; null when it is behind the camera.
+     */
+    fun playerScreenPoint(height: Float): Pair<Float, Float>? {
+        val car = game.car
+        tmp4[0] = car.x; tmp4[1] = height; tmp4[2] = car.z; tmp4[3] = 1f
+        Matrix.multiplyMV(clip4, 0, viewProj, 0, tmp4, 0)
+        if (clip4[3] <= 0.01f) return null
+        return (clip4[0] / clip4[3] * 0.5f + 0.5f) to (0.5f - clip4[1] / clip4[3] * 0.5f)
+    }
+
+    private val lightView = FloatArray(16)
+    private val lightProj = FloatArray(16)
+    val lightViewProj = FloatArray(16)
+
+    /** Sun shadow camera: an orthographic box around the player, snapped to whole texels so edges don't shimmer. */
+    private fun updateLight() {
+        val car = game.car
+        val d = 120f
+        Matrix.setLookAtM(lightView, 0, car.x + SUN.x * d, SUN.y * d, car.z + SUN.z * d, car.x, 0f, car.z, 0f, 1f, 0f)
+        Matrix.orthoM(lightProj, 0, -SHADOW_RANGE, SHADOW_RANGE, -SHADOW_RANGE, SHADOW_RANGE, 1f, 260f)
+        Matrix.multiplyMM(lightViewProj, 0, lightProj, 0, lightView, 0)
+        tmp4[0] = 0f; tmp4[1] = 0f; tmp4[2] = 0f; tmp4[3] = 1f
+        Matrix.multiplyMV(clip4, 0, lightViewProj, 0, tmp4, 0)
+        val half = SHADOW_MAP_SIZE / 2f
+        val ox = clip4[0] * half
+        val oy = clip4[1] * half
+        lightViewProj[12] += (Math.round(ox) - ox) / half
+        lightViewProj[13] += (Math.round(oy) - oy) / half
+    }
+
     fun render(sink: DrawSink) {
-        sink.beginFrame(viewProj, camX, camY, camZ)
+        updateLight()
+        sink.beginShadows(lightViewProj)
+        for (r in game.racers) {
+            val car = r.car
+            // Only cars near the player fit in the shadow map.
+            if (abs(car.x - game.car.x) > SHADOW_RANGE + 5f || abs(car.z - game.car.z) > SHADOW_RANGE + 5f) continue
+            drawCar(r) { mesh, m, _ -> sink.drawShadowCaster(mesh, m) }
+        }
+        sink.beginFrame(viewProj, camX, camY, camZ, lightViewProj)
 
         // Sky: centered on the camera, behind everything.
         Matrix.setIdentityM(model, 0)
@@ -141,33 +218,39 @@ class Scene(private val game: GameState) {
         sink.draw(MeshId.PROPS.name, model, params)
         sink.draw(MeshId.VEGETATION.name, model, params)
 
-        for (r in game.racers) drawCar(sink, r)
+        for (r in game.racers) {
+            // Soft contact shadow (before body roll/pitch so it stays on the ground).
+            carMatrix(r.car)
+            params.reset().apply { mode = 2f; blend = true; depthWrite = false; polygonOffset = true }
+            sink.draw(MeshId.CAR_SHADOW.name, carModel, params)
+            drawCar(r) { mesh, m, p -> sink.draw(mesh, m, p) }
+        }
     }
 
-    private fun drawCar(sink: DrawSink, racer: Racer) {
-        val car = racer.car
+    private fun carMatrix(car: CarPhysics) {
         Matrix.setIdentityM(carModel, 0)
         Matrix.translateM(carModel, 0, car.x, 0f, car.z)
         Matrix.rotateM(carModel, 0, Math.toDegrees(car.yaw.toDouble()).toFloat(), 0f, 1f, 0f)
+    }
 
-        // Soft shadow (before body roll/pitch so it stays on the ground).
-        System.arraycopy(carModel, 0, model, 0, 16)
-        params.reset().apply { mode = 2f; blend = true; depthWrite = false; polygonOffset = true }
-        sink.draw(MeshId.CAR_SHADOW.name, model, params)
+    private fun drawCar(racer: Racer, draw: (String, FloatArray, DrawParams) -> Unit) {
+        val car = racer.car
+        val st = CarModel.styleFor(racer.spec)
+        carMatrix(car)
 
         // Wheels; the mesh's outer face is +x, so left-side wheels are mirrored.
         val spinDeg = Math.toDegrees(car.wheelSpin.toDouble()).toFloat()
         val steerDeg = -Math.toDegrees(car.wheelAngle.toDouble()).toFloat()
         params.reset()
         for (k in 0 until 4) {
-            val wx = if (k % 2 == 0) CarModel.WHEEL_X else -CarModel.WHEEL_X
-            val wz = if (k < 2) CarModel.FRONT_AXLE else CarModel.REAR_AXLE
+            val wx = if (k % 2 == 0) st.wheelX else -st.wheelX
+            val wz = if (k < 2) st.frontAxle else st.rearAxle
             System.arraycopy(carModel, 0, model, 0, 16)
-            Matrix.translateM(model, 0, wx, CarPhysics.WHEEL_RADIUS, wz)
+            Matrix.translateM(model, 0, wx, CarModel.WHEEL_RADIUS_RENDER, wz)
             if (wz > 0f) Matrix.rotateM(model, 0, steerDeg, 0f, 1f, 0f)
             Matrix.rotateM(model, 0, spinDeg, 1f, 0f, 0f)
             if (wx < 0f) Matrix.scaleM(model, 0, -1f, 1f, 1f)
-            sink.draw(MeshId.WHEEL.name, model, params)
+            draw(MeshId.WHEEL.name, model, params)
         }
 
         // Body with a little pitch under acceleration and roll in corners.
@@ -178,18 +261,21 @@ class Scene(private val game: GameState) {
         Matrix.rotateM(model, 0, pitch, 1f, 0f, 0f)
         Matrix.rotateM(model, 0, roll, 0f, 0f, 1f)
         params.reset()
-        sink.draw(bodyKey(racer.color), model, params)
+        draw(bodyKey(st, racer.color), model, params)
         if (racer.braking) {
             params.reset().apply { mode = 2f; tintR = 1.6f; tintG = 1.6f; tintB = 1.6f }
         } else {
             params.reset()
         }
-        sink.draw(MeshId.CAR_LIGHTS.name, model, params)
+        draw(lightsKey(st), model, params)
     }
 
     companion object {
         /** Vertical image offset in normalized device units (2 = full screen height). */
         const val SCREEN_SHIFT = 0.32f
+        /** Half the width of the area around the player where cars cast real shadows, meters. */
+        const val SHADOW_RANGE = 22f
+        const val SHADOW_MAP_SIZE = 2048
 
         val SUN = V3(0.55f, 0.52f, 0.65f).normalized()
         val SKY_ZENITH = Rgb.hex(0x2F6FC4)

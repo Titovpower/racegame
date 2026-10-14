@@ -25,17 +25,21 @@ class GlMesh(data: FloatArray) {
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vbo)
         GLES20.glEnableVertexAttribArray(shader.aPos)
         GLES20.glVertexAttribPointer(shader.aPos, 3, GLES20.GL_FLOAT, false, stride, 0)
-        GLES20.glEnableVertexAttribArray(shader.aNormal)
-        GLES20.glVertexAttribPointer(shader.aNormal, 3, GLES20.GL_FLOAT, false, stride, 12)
-        GLES20.glEnableVertexAttribArray(shader.aColor)
-        GLES20.glVertexAttribPointer(shader.aColor, 4, GLES20.GL_FLOAT, false, stride, 24)
+        if (shader.aNormal >= 0) {
+            GLES20.glEnableVertexAttribArray(shader.aNormal)
+            GLES20.glVertexAttribPointer(shader.aNormal, 3, GLES20.GL_FLOAT, false, stride, 12)
+        }
+        if (shader.aColor >= 0) {
+            GLES20.glEnableVertexAttribArray(shader.aColor)
+            GLES20.glVertexAttribPointer(shader.aColor, 4, GLES20.GL_FLOAT, false, stride, 24)
+        }
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, vertexCount)
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
     }
 }
 
-/** The single scene shader; see [ShaderSource]. */
-class Shader {
+/** A linked GLSL program; the scene shader by default, see [ShaderSource]. */
+class Shader(vertex: String = ShaderSource.VERTEX, fragment: String = ShaderSource.FRAGMENT) {
     val program: Int
     val aPos: Int
     val aNormal: Int
@@ -43,8 +47,8 @@ class Shader {
     private val uniforms = HashMap<String, Int>()
 
     init {
-        val vs = compile(GLES20.GL_VERTEX_SHADER, ShaderSource.VERTEX)
-        val fs = compile(GLES20.GL_FRAGMENT_SHADER, ShaderSource.FRAGMENT)
+        val vs = compile(GLES20.GL_VERTEX_SHADER, vertex)
+        val fs = compile(GLES20.GL_FRAGMENT_SHADER, fragment)
         program = GLES20.glCreateProgram()
         GLES20.glAttachShader(program, vs)
         GLES20.glAttachShader(program, fs)

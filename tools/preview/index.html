@@ -14,23 +14,47 @@ async function main() {
   const gl = c.getContext('webgl', {antialias: true, depth: true, preserveDrawingBuffer: true});
   function sh(type, src) { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
     if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
-  const prog = gl.createProgram(); gl.attachShader(prog, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, fs));
-  gl.linkProgram(prog); if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
-  gl.useProgram(prog);
+  function link(v, f) { const p = gl.createProgram(); gl.attachShader(p, sh(gl.VERTEX_SHADER, v)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, f));
+    gl.linkProgram(p); if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p)); return p; }
+  const prog = link(vs, fs);
+  const sprog = link(await (await fetch(dir + '/shadow.vert')).text(), await (await fetch(dir + '/shadow.frag')).text());
   const U = n => gl.getUniformLocation(prog, n);
   const aPos = gl.getAttribLocation(prog, 'aPos'), aNormal = gl.getAttribLocation(prog, 'aNormal'), aColor = gl.getAttribLocation(prog, 'aColor');
   const bufs = {};
-  for (const d of frame.draws) if (!bufs[d.mesh]) {
+  for (const d of frame.draws.concat(frame.casters)) if (!bufs[d.mesh]) {
     const data = new Float32Array(await (await fetch(dir + '/' + d.mesh + '.bin')).arrayBuffer());
     const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
     bufs[d.mesh] = {b, n: data.length / 10};
   }
+  function mul(a, b) { const o = new Float32Array(16); for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) { let s = 0; for (let k = 0; k < 4; k++) s += a[k*4+j] * b[i*4+k]; o[i*4+j] = s; } return o; }
+  // Shadow pass, as in GameRenderer.
+  const S = frame.shadowSize;
+  const stex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, stex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, S, S, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.NEAREST], [gl.TEXTURE_MAG_FILTER, gl.NEAREST], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
+  const rb = gl.createRenderbuffer(); gl.bindRenderbuffer(gl.RENDERBUFFER, rb); gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, S, S);
+  const fb = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, stex, 0);
+  gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, rb);
+  gl.viewport(0, 0, S, S); gl.clearColor(1, 1, 1, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  gl.enable(gl.DEPTH_TEST); gl.useProgram(sprog);
+  const sPos = gl.getAttribLocation(sprog, 'aPos');
+  for (const d of frame.casters) {
+    gl.uniformMatrix4fv(gl.getUniformLocation(sprog, 'uMvp'), false, mul(frame.lightViewProj, d.model));
+    const m = bufs[d.mesh]; gl.bindBuffer(gl.ARRAY_BUFFER, m.b);
+    gl.enableVertexAttribArray(sPos); gl.vertexAttribPointer(sPos, 3, gl.FLOAT, false, 40, 0);
+    gl.drawArrays(gl.TRIANGLES, 0, m.n);
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, c.width, c.height);
+  gl.useProgram(prog);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, stex);
+  gl.uniform1i(U('uShadowMap'), 0); gl.uniform1f(U('uShadowOn'), 1); gl.uniform1f(U('uShadowTexel'), 1 / S);
+  gl.uniformMatrix4fv(U('uLightVP'), false, new Float32Array(frame.lightViewProj));
   const h = frame.horizon; gl.clearColor(h[0], h[1], h[2], 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
   gl.depthFunc(gl.LEQUAL);
   gl.uniform3fv(U('uCamPos'), frame.cam); gl.uniform3fv(U('uSunDir'), frame.sun); gl.uniform3fv(U('uFogColor'), h);
   gl.uniform3fv(U('uSkyHorizon'), h); gl.uniform3fv(U('uSkyZenith'), frame.zenith); gl.uniform3fv(U('uGroundBounce'), frame.bounce);
   gl.uniform2fv(U('uFogRange'), frame.fog);
-  function mul(a, b) { const o = new Float32Array(16); for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) { let s = 0; for (let k = 0; k < 4; k++) s += a[k*4+j] * b[i*4+k]; o[i*4+j] = s; } return o; }
   for (const d of frame.draws) {
     d.depthTest ? gl.enable(gl.DEPTH_TEST) : gl.disable(gl.DEPTH_TEST);
     gl.depthMask(d.depthWrite);
@@ -49,7 +73,26 @@ async function main() {
   document.title = 'done';
 }
 // Approximation of ControlOverlayView (Android Canvas) for the preview.
+function picker(frame) {
+  const g = document.getElementById('o').getContext('2d'), W = 1280, H = 640, d = 2;
+  const [brand, model, hp, zt, top] = frame.car.split('|');
+  const pw = Math.min(W * 0.62, 460 * d), ph = 150 * d, left = (W - pw) / 2, t = H - ph - 16 * d;
+  g.fillStyle = 'rgba(12,14,18,0.59)'; g.beginPath(); g.roundRect(left, t, pw, ph, 16 * d); g.fill();
+  g.textAlign = 'center'; g.shadowColor = 'black'; g.shadowBlur = 3;
+  g.font = `bold ${12*d}px sans-serif`; g.fillStyle = 'rgba(255,255,255,0.8)'; g.fillText('CHOOSE YOUR CAR', W / 2, t + 22 * d);
+  g.fillStyle = 'white'; g.font = `italic bold ${26*d}px sans-serif`; g.fillText(brand.toUpperCase(), W / 2, t + 52 * d);
+  g.font = `bold ${15*d}px sans-serif`; g.fillText(model, W / 2, t + 72 * d);
+  g.font = `bold ${12*d}px sans-serif`; g.fillStyle = 'rgba(255,255,255,0.8)';
+  g.fillText(`${hp} hp   ·   0-100 km/h ${Number(zt).toFixed(1)} s   ·   ${top} km/h`, W / 2, t + 94 * d);
+  g.fillStyle = 'white'; g.font = `bold ${34*d}px sans-serif`;
+  g.fillText('◀', left + 32 * d, t + 55 * d + 12 * d); g.fillText('▶', left + pw - 32 * d, t + 55 * d + 12 * d);
+  g.shadowBlur = 0;
+  const bw = 150 * d, bh = 34 * d, by = t + ph - bh - 10 * d;
+  g.fillStyle = 'rgb(200,16,46)'; g.beginPath(); g.roundRect(W / 2 - bw / 2, by, bw, bh, bh / 2); g.fill();
+  g.fillStyle = 'white'; g.font = `bold ${15*d}px sans-serif`; g.fillText('START RACE', W / 2, by + bh / 2 + 15 * d * 0.35);
+}
 function overlay(frame) {
+  if (frame.picking) return picker(frame);
   const g = document.getElementById('o').getContext('2d'), W = 1280, H = 640, d = 2;
   const r = Math.min(H * 0.17, W * 0.13), cx = W / 2, cy = H - r - 14 * d;
   g.textAlign = 'center'; g.font = `bold ${12*d}px sans-serif`; g.fillStyle = 'rgba(255,255,255,0.8)';
@@ -79,7 +122,7 @@ function overlay(frame) {
   g.font = `bold ${15*d}px sans-serif`; g.fillText(`LAP ${frame.lap}/${frame.totalLaps}`, W - 16*d, 16*d + 44*d + 21*d);
   g.shadowBlur = 0; g.shadowOffsetY = 0; g.textAlign = 'left';
   // Ranking, bottom left.
-  const pad = 12*d, rowH = 17*d, headerH = 20*d, panelW = 132*d, bottom = H - pad;
+  const pad = 12*d, rowH = 17*d, headerH = 20*d, panelW = 196*d, bottom = H - pad;
   const ptop = bottom - headerH - frame.standings.length * rowH - 6*d;
   g.fillStyle = 'rgba(12,14,18,0.59)'; g.beginPath(); g.roundRect(pad, ptop, panelW, bottom - ptop, 10*d); g.fill();
   g.font = `bold ${12*d}px sans-serif`; g.fillStyle = 'rgba(255,255,255,0.78)'; g.fillText('RANKING', pad + 10*d, ptop + headerH - 5*d);
@@ -89,11 +132,23 @@ function overlay(frame) {
     g.fillStyle = 'white'; g.textAlign = 'right'; g.fillText(String(k + 1), pad + 24*d, base); g.textAlign = 'left';
     g.fillStyle = '#' + r.color.toString(16).padStart(6, '0'); g.beginPath(); g.arc(pad + 36*d, y0 + rowH / 2, 5*d, 0, 7); g.fill();
     g.fillStyle = 'white'; g.fillText(r.name, pad + 47*d, base);
+    g.fillStyle = r.player ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.67)'; g.fillText(r.car, pad + 112*d, base);
   });
+  if (frame.win) win(frame, g, W, H, d);
   if (frame.countdown > 0) {
     const n = Math.ceil(frame.countdown - 0.5);
     if (n >= 1 && n <= 3) { g.textAlign = 'center'; g.font = `italic bold ${72*d}px sans-serif`; g.shadowBlur = 8; g.fillText(String(n), W / 2, H * 0.32); g.shadowBlur = 0; }
   }
+}
+function win(frame, g, W, H, d) {
+  const p = frame.winPos || [0.5, 0.35], size = 64 * d;
+  g.textAlign = 'center'; g.font = `italic bold ${size}px sans-serif`;
+  g.lineWidth = size * 0.06; g.strokeStyle = 'white'; g.strokeText('YOU WIN', p[0] * W, p[1] * H);
+  g.shadowColor = 'rgba(0,0,0,0.6)'; g.shadowBlur = 10; g.shadowOffsetY = 4;
+  g.fillStyle = 'rgb(230,20,30)'; g.fillText('YOU WIN', p[0] * W, p[1] * H);
+  g.shadowBlur = 0; g.shadowOffsetY = 0;
+  g.font = `bold ${15*d}px sans-serif`; g.fillStyle = 'white'; g.shadowColor = 'black'; g.shadowBlur = 3;
+  g.fillText(`5 laps done · finished P${frame.position}`, W / 2, p[1] * H + 30 * d); g.shadowBlur = 0;
 }
 main().catch(e => { document.title = 'error: ' + e.message; });
 </script></body></html>

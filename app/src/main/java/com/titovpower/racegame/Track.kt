@@ -92,15 +92,11 @@ class Track(val samples: Int = 600) {
         return sqrt(dx * dx + dz * dz)
     }
 
-    /**
-     * Fastest sensible speed (m/s) at each sample on the street: limited by how hard the car
-     * can turn there, and by having to brake in time for the corners that follow.
-     */
-    val safeSpeed: FloatArray by lazy {
-        val v = FloatArray(samples)
-        val s = Surface.STREET
-        for (i in 0 until samples) {
-            // Curvature from the heading change over a few samples.
+    private val safeSpeeds = HashMap<CarSpec, FloatArray>()
+
+    /** Signed curvature (1/m) at each sample, from the heading change over a few samples. */
+    val curvature: FloatArray by lazy {
+        FloatArray(samples) { i ->
             val a = headingAt((i - 4 + samples) % samples)
             val b = headingAt((i + 4) % samples)
             var d = b - a
@@ -108,17 +104,19 @@ class Track(val samples: Int = 600) {
             while (d < -PI) d += (2 * PI).toFloat()
             var dist = 0f
             for (k in -4 until 4) dist += segmentLength((i + k + samples) % samples)
-            val k = abs(d) / dist
-            // Turning needs yaw rate v*k; the car offers steerRate / (1 + v/70) (see CarPhysics). Keep 20% margin.
-            val limit = s.steerRate * 0.8f
-            val corner = if (k < 1e-4f) s.maxSpeed else {
-                val qa = k / 70f
-                (-k + sqrt(k * k + 4f * qa * limit)) / (2f * qa)
-            }
-            v[i] = minOf(corner, s.maxSpeed)
+            d / dist
         }
-        // Backwards passes so the car starts braking early enough (at 60% of full braking).
-        val decel = s.brakeDecel * 0.6f
+    }
+
+    /**
+     * Fastest sensible speed (m/s) for [spec] at each sample on asphalt: limited by grip and
+     * steering in the corner itself, and by having to brake in time for the corners that follow.
+     */
+    @Synchronized
+    fun safeSpeed(spec: CarSpec): FloatArray = safeSpeeds.getOrPut(spec) {
+        val v = FloatArray(samples) { i -> spec.cornerSpeed(abs(curvature[i])) * 0.97f }
+        // Backwards passes: brake at 75% of the car's limit before each corner.
+        val decel = spec.brakeG * GRAVITY * 0.75f
         repeat(2) {
             for (i in samples - 1 downTo 0) {
                 val next = v[(i + 1) % samples]

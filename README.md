@@ -1,26 +1,45 @@
 # Race Game
 
-A small 3D racing game for Android. Drive a red sports car around a track through
-grass, woods and hills, seen from a chase camera behind the car.
+A small 3D racing game for Android. Pick a sports car, then race 8 opponents over 5 laps on a
+track through grass, woods and hills, seen from a chase camera behind the car.
 
-![Race start](docs/grid.png)
+![Choosing a car](docs/picker.png)
 ![Racing](docs/race.png)
-![On the street](docs/street.png)
 ![On the grass](docs/grass.png)
-![The car](docs/car.png)
+![YOU WIN after 5 laps](docs/win.png)
+![The six cars](docs/cars.png)
 
 <sub>Screenshots are rendered from the game's own meshes and shader in headless Chromium (WebGL),
 see `tools/preview`. The steering wheel and HUD in them are an approximation of the Android overlay.</sub>
 
+## Cars
+
+Before the race you choose your car with the arrows and press **START RACE**. Six models, styled
+after real cars (proportions from published dimensions, brand names only, no logos):
+
+| Car | Power | Weight | 0-100 km/h | Top speed | Drive |
+|---|---|---|---|---|---|
+| Lamborghini Huracán EVO | 639 hp | 1550 kg | 2.9 s | 325 km/h | AWD |
+| Porsche 911 GT3 | 510 hp | 1435 kg | 3.4 s | 318 km/h | RWD |
+| BMW M4 Competition | 530 hp | 1775 kg | 3.5 s | 290 km/h | AWD |
+| Mercedes-AMG GT R | 584 hp | 1630 kg | 3.6 s | 318 km/h | RWD |
+| Audi R8 V10 performance | 620 hp | 1595 kg | 3.1 s | 331 km/h | AWD |
+| Aston Martin Vantage | 665 hp | 1605 kg | 3.5 s | 325 km/h | RWD |
+
+The physics take these figures over directly. Engine power (minus drivetrain losses) is limited by
+tire traction at low speed; air drag is solved from the top speed and launch traction from the
+0-100 time, so every car reaches its published numbers (checked by the unit tests). Braking,
+cornering grip and downforce differ per car, and turning follows the wheelbase and steering angle.
+
 ## Race
 
-You race 8 AI opponents over 5 laps, starting from the back of the grid after a 3-2-1 countdown.
-Each opponent has its own skill level (how close to the limit it drives through corners) and a
-preferred line, and swings out to overtake slower cars. Cars bump into each other.
+You race 8 AI opponents, each driving one of the six models, starting from the back of the grid
+after a 3-2-1 countdown. Each opponent has its own skill level and preferred line, brakes for
+corners according to its own car's grip, and swings out to overtake slower cars.
 
-The **ranking** in the bottom-left corner shows the live order: finished drivers by finishing time,
-everyone else by distance covered. Your row is highlighted, and your position and lap are shown
-top right. When you cross the line after the last lap, tap anywhere to race again.
+The **ranking** in the bottom-left corner shows the live order with each driver's car brand.
+Crossing the finish line **5 times** completes the race: a red **YOU WIN** pops up above your car,
+with your finishing place. Tap anywhere to pick a car and race again.
 
 ## Controls
 
@@ -31,26 +50,20 @@ A steering wheel sits at the bottom of the screen. Touch it and drag:
 - **down**: brake; keep holding it while stopped to reverse
 - **let go**: the wheel re-centers and the car coasts
 
-The ground matters. On **grass** the car accelerates, steers and brakes much more
-slowly than on the **street**, and its top speed is lower:
-
-| | Street | Grass |
-|---|---|---|
-| Acceleration | 11 m/s² | 4.5 m/s² |
-| Top speed | ~210 km/h | ~86 km/h |
-| Braking | 24 m/s² | 9 m/s² |
-| Max steering rate | 1.5 rad/s | 0.75 rad/s |
-
-These live in `Surface.STREET` / `Surface.GRASS` in `CarPhysics.kt`.
+The ground matters. On **grass** the tires have under half the grip of asphalt and most
+engine power is lost to wheelspin, so the car accelerates, steers and brakes much more slowly,
+and top speed drops below ~110 km/h (`Surface.STREET` / `Surface.GRASS` in `CarPhysics.kt`).
+On asphalt a car stops from 100 km/h in about 30 m.
 The HUD shows speed, the current ground type, position, lap and lap times.
 
 ## Tech
 
 Plain Kotlin with OpenGL ES 2.0 (`GLSurfaceView`), no game engine and no third-party
 libraries. All geometry (terrain, track, trees, grandstand, car) is generated in code.
-One shader does per-pixel lighting with a hemisphere ambient, specular highlights and
-sky reflections on the car paint and glass, procedural grass and asphalt detail,
-a procedural sky with sun and clouds, and distance fog.
+Rendering: real-time sun shadows for the cars (a depth map packed into an RGBA texture,
+bilinear-filtered), per-pixel lighting in linear space with a filmic (ACES) tone curve,
+hemisphere ambient, specular highlights and Fresnel sky reflections on paint and glass,
+procedural grass and asphalt detail, a procedural sky with sun and clouds, and distance fog.
 
 | File | What it does |
 |---|---|
@@ -58,11 +71,11 @@ a procedural sky with sun and clouds, and distance fog.
 | `ControlOverlayView.kt` | Steering wheel touch control and HUD |
 | `Scene.kt` | Chase camera and the per-frame draw list (API independent) |
 | `GameRenderer.kt` | GL thread: simulation loop and OpenGL drawing |
-| `ShaderSource.kt` | GLSL vertex and fragment shader |
-| `GameState.kt` | Race simulation: AI drivers, grid and countdown, collisions, laps, ranking |
-| `CarPhysics.kt` | Car model and street/grass parameters |
+| `ShaderSource.kt` | GLSL scene shader and shadow-map shader |
+| `GameState.kt` | Race simulation: car choice, AI drivers, grid and countdown, collisions, laps, ranking |
+| `CarPhysics.kt` | Real car specs, vehicle dynamics and street/grass parameters |
 | `World.kt`, `Track.kt` | Track shape, hills, trees, bushes, rocks, grandstand |
-| `CarModel.kt` | The sports car: lofted body with wheel arches, glass cabin, alloy wheels |
+| `CarModel.kt` | The six car styles: lofted bodies with wheel arches, grilles, lights, wings, exhausts |
 | `SceneMeshes.kt`, `MeshBuilder.kt` | Procedural world meshes and mesh helpers |
 
 ## Build and install
