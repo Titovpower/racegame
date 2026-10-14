@@ -173,7 +173,7 @@ async function main() {
     gl.bindFramebuffer(gl.FRAMEBUFFER, shadowFbo[k]); gl.clear(gl.DEPTH_BUFFER_BIT);
     gl.uniformMatrix4fv(u(shadowProgram, 'uLightVP'), false, k ? frame.lightVP1 : frame.lightVP0);
     for (const it of (k ? items.slice(0, 1) : items)) for (const p of it.m.prims) {
-      if (p.material.blend) continue;
+      if (p.material.blend || p.material.name === "FOLIAGE") continue;
       gl.uniformMatrix4fv(u(shadowProgram, 'uModel'), false, mul(it.matrix, p.matrix));
       gl.bindVertexArray(p.vao); gl.drawElements(gl.TRIANGLES, p.count, gl.UNSIGNED_INT, 0);
     }

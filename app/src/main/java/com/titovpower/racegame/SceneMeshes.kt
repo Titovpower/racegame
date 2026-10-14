@@ -1,6 +1,7 @@
 package com.titovpower.racegame
 
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
@@ -181,6 +182,99 @@ object SceneMeshes {
             Rgb.hex(0xECEFF1),
         )
         b.gloss = 0f
+        return b.toArray()
+    }
+
+    private val BLADE_BASE = Rgb.hex(0x44752C)
+    private val BLADE_TIP = Rgb.hex(0x8DB04A)
+    private val BLADE_DRY = Rgb.hex(0xB5AE62)
+
+    /**
+     * Grass tufts on the verges along the track (densest next to the curbs) and leaves on the
+     * broadleaf trees and bushes: thin double-sided cards. Normals point up or out of the crown,
+     * so they light like the ground and the foliage they sit on.
+     */
+    fun foliage(world: World): FloatArray {
+        val b = MeshBuilder(1 shl 22)
+        val track = world.track
+        val rnd = Random(11)
+        val minOffset = track.halfWidth + track.curbWidth + 0.4f
+        repeat(30000) {
+            val i = rnd.nextInt(track.samples)
+            val t = track.tangent(i)
+            // Biased towards the track: most tufts within ~15 m of the curb.
+            val off = minOffset + 40f * rnd.nextFloat().let { it * it * it }
+            val side = if (rnd.nextBoolean()) 1f else -1f
+            val along = rnd.nextFloat()
+            val j = (i + 1) % track.samples
+            val cx = track.xs[i] + (track.xs[j] - track.xs[i]) * along + t.z * off * side
+            val cz = track.zs[i] + (track.zs[j] - track.zs[i]) * along - t.x * off * side
+            val y = world.heightAt(cx, cz, off) - 0.02f
+            val h = 0.16f + rnd.nextFloat() * 0.26f
+            val dry = clamp(Noise.value(cx * 0.012f, cz * 0.012f) - 0.5f, 0f, 1f) * 1.4f
+            val tip = BLADE_TIP.mix(BLADE_DRY, dry).scale(0.85f + rnd.nextFloat() * 0.3f)
+            val base = BLADE_BASE.scale(0.8f + rnd.nextFloat() * 0.3f)
+            val up = V3(0f, 1f, 0f)
+            val blades = 4 + rnd.nextInt(3)
+            for (k in 0 until blades) {
+                val a = rnd.nextFloat() * 6.283f
+                val lean = 0.15f + rnd.nextFloat() * 0.35f
+                val dx = cos(a)
+                val dz = sin(a)
+                val px = cx + dx * 0.04f
+                val pz = cz + dz * 0.04f
+                val w = 0.022f + rnd.nextFloat() * 0.015f
+                // A blade: a thin triangle from a dark root to a bright tip, leaning outwards.
+                val b0 = V3(px - dz * w, y, pz + dx * w)
+                val b1 = V3(px + dz * w, y, pz - dx * w)
+                val tp = V3(px + dx * h * lean, y + h, pz + dz * h * lean)
+                b.vertex(b0, up, base); b.vertex(b1, up, base); b.vertex(tp, up, tip)
+            }
+        }
+        // Leaves: small pointed cards scattered over the broadleaf crowns and bushes.
+        fun leaves(center: V3, rx: Float, ry: Float, rz: Float, count: Int, size: Float, color: Rgb, seed: Int) {
+            val r = Random(seed)
+            repeat(count) {
+                // A random direction, favoring the upper half (the underside is in shade anyway).
+                val u = r.nextFloat() * 2f - 1f
+                val phi = r.nextFloat() * 6.283f
+                val sy = maxOf(u, -0.4f)
+                val ring = kotlin.math.sqrt(1f - sy * sy)
+                val n = V3(ring * cos(phi), sy, ring * sin(phi))
+                val p = V3(center.x + n.x * rx * 1.04f, center.y + n.y * ry * 1.04f, center.z + n.z * rz * 1.04f)
+                // Two in-plane axes, twisted randomly, tilted out of the crown surface.
+                val t0 = (if (abs(n.y) < 0.9f) V3(0f, 1f, 0f) else V3(1f, 0f, 0f)).cross(n).normalized()
+                val t1 = n.cross(t0)
+                val tw = r.nextFloat() * 6.283f
+                val ax = (t0 * cos(tw) + t1 * sin(tw) + n * 0.5f).normalized() * size
+                val ay = (t1 * cos(tw) - t0 * sin(tw)).normalized() * (size * 0.5f)
+                val c = color.scale(0.75f + r.nextFloat() * 0.5f)
+                val tipC = p + ax
+                val back = p - ax * 0.6f
+                // One triangle per leaf: from a broad base to the tip.
+                b.vertex(back + ay, n, c); b.vertex(back - ay, n, c); b.vertex(tipC, n, c)
+            }
+        }
+        for (tr in world.trees) {
+            if (tr.pine) continue
+            val s = tr.scale
+            val rot = (tr.x * 13.1f + tr.z * 7.7f) % 6.28f
+            val tint = 0.85f + Noise.value(tr.x * 0.3f, tr.z * 0.3f) * 0.3f
+            val autumn = Noise.value(tr.x * 0.05f, tr.z * 0.05f)
+            val leaf = LEAF.mix(LEAF_AUTUMN, clamp(autumn - 0.55f, 0f, 1f) * 2f).scale(tint * 1.08f)
+            val cy = tr.y + 4.4f * s
+            val seed = (tr.x * 3 + tr.z).toInt()
+            leaves(V3(tr.x, cy, tr.z), 2.3f * s, 1.9f * s, 2.3f * s, 70, 0.32f * s, leaf, seed)
+            for (k in 0 until 3) {
+                val a = rot + k * 2.1f
+                leaves(V3(tr.x + cos(a) * 1.4f * s, cy + (0.5f + 0.4f * (k % 2)) * s, tr.z + sin(a) * 1.4f * s), 1.45f * s, 1.25f * s, 1.45f * s, 30, 0.28f * s, leaf, seed + k * 7)
+            }
+            leaves(V3(tr.x, cy + 1.6f * s, tr.z), 1.5f * s, 1.2f * s, 1.5f * s, 30, 0.28f * s, leaf.scale(1.1f), seed + 3)
+        }
+        for (bush in world.bushes) {
+            val tint = 0.85f + Noise.value(bush.x * 0.4f, bush.z * 0.4f) * 0.3f
+            leaves(V3(bush.x, bush.size * 0.45f, bush.z), bush.size * 1.1f, bush.size * 0.8f, bush.size, 26, 0.16f + bush.size * 0.06f, BUSH.scale(tint * 1.1f), (bush.x * 7 + bush.z).toInt())
+        }
         return b.toArray()
     }
 

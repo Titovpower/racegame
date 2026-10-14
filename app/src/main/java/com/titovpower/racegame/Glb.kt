@@ -18,6 +18,8 @@ enum class Surfacing {
     ASPHALT,
     /** Lamps: emissive, switched on at runtime (brake lights). */
     LAMP,
+    /** Grass blades and leaves: thin cards seen from both sides. */
+    FOLIAGE,
 }
 
 /** A named mesh part: [MeshBuilder] vertex data plus how to shade it. */
@@ -68,6 +70,7 @@ object Glb {
                 Surfacing.GRASS -> pbr(key, 0f, 0.95f, texture(kind))
                 Surfacing.ASPHALT -> pbr(key, 0f, 0.82f, texture(kind))
                 Surfacing.LAMP -> pbr(key, 0f, 0.25f, emissive = true)
+                Surfacing.FOLIAGE -> pbr(key, 0f, 0.75f, doubleSided = true)
                 Surfacing.AUTO -> when {
                     gloss >= 0.99f -> pbr(key, 0f, 0.04f) // glass and lenses
                     gloss >= 0.85f -> pbr(key, 1f, 0.18f) // chrome and polished metal
@@ -192,13 +195,14 @@ object Glb {
         return if (gx * nx + gy * ny + gz * nz >= 0f) CCW else CW
     }
 
-    private fun pbr(name: String, metallic: Float, roughness: Float, texture: Int = -1, clearcoat: Boolean = false, emissive: Boolean = false): String {
+    private fun pbr(name: String, metallic: Float, roughness: Float, texture: Int = -1, clearcoat: Boolean = false, emissive: Boolean = false, doubleSided: Boolean = false): String {
         val tex = if (texture >= 0) ""","baseColorTexture":{"index":$texture}""" else ""
         val ext = ArrayList<String>()
         if (clearcoat) ext.add(""""KHR_materials_clearcoat":{"clearcoatFactor":1.0,"clearcoatRoughnessFactor":0.06}""")
         val extJson = if (ext.isEmpty()) "" else ""","extensions":{${ext.joinToString(",")}}"""
         val emissiveJson = if (emissive) ""","emissiveFactor":[0,0,0]""" else ""
-        return """{"name":"$name","pbrMetallicRoughness":{"baseColorFactor":[1,1,1,1],"metallicFactor":$metallic,"roughnessFactor":$roughness$tex}$emissiveJson$extJson}"""
+        val sides = if (doubleSided) ""","doubleSided":true""" else ""
+        return """{"name":"$name","pbrMetallicRoughness":{"baseColorFactor":[1,1,1,1],"metallicFactor":$metallic,"roughnessFactor":$roughness$tex}$emissiveJson$extJson$sides}"""
     }
 
     private fun toLinear(c: Float) = clamp(c, 0f, 1f).toDouble().pow(2.2).toFloat()

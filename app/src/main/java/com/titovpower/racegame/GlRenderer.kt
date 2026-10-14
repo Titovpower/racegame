@@ -435,7 +435,8 @@ private class GlModel(private val model: GltfModel, bitmaps: List<Bitmap?>) {
 
     fun drawDepth(modelLoc: Int, matrix: FloatArray) {
         for (p in prims) {
-            if (p.material.blend) continue
+            // Grass blades and leaf cards are too small to matter in the shadow maps; the crowns cast the tree shadows.
+            if (p.material.blend || p.material.name == "FOLIAGE") continue
             Matrix.multiplyMM(world, 0, matrix, 0, p.matrix, 0)
             GLES30.glUniformMatrix4fv(modelLoc, 1, false, world, 0)
             GLES30.glBindVertexArray(p.vao)

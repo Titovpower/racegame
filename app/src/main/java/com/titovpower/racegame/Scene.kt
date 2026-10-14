@@ -30,6 +30,7 @@ class Scene(private val game: GameState) {
                     GlbPart("road", SceneMeshes.road(w.track), Surfacing.ASPHALT),
                     GlbPart("props", SceneMeshes.props(w)),
                     GlbPart("vegetation", SceneMeshes.vegetation(w)),
+                    GlbPart("foliage", SceneMeshes.foliage(w), Surfacing.FOLIAGE),
                 ),
             ),
             WHEEL to Glb.write(listOf(GlbPart("wheel", CarModel.wheel()))),

@@ -166,7 +166,9 @@ void main() {
     float dist = length(toCam);
     vec3 v = toCam / dist;
     vec3 n = normalize(vNormal);
-    if (!gl_FrontFacing) n = -n;
+    // Back faces of double-sided surfaces: turn the normal to the viewer, unless it already faces
+    // them (grass and leaf cards carry upward/outward normals so both sides light alike).
+    if (!gl_FrontFacing && dot(n, v) < 0.0) n = -n;
     float NoV = max(dot(n, v), 1e-3);
 
     float rough = clamp(uRoughness, 0.045, 1.0);

@@ -108,7 +108,8 @@ roughness maps are ignored.
 ## Tech
 
 Plain Kotlin and OpenGL ES 3.0, no game engine or rendering library. All geometry (terrain, track, trees,
-grandstand, cars) is generated in code.
+grandstand, cars) is generated in code, including ~30,000 grass tufts along the verges and
+individual leaves on the broadleaf trees and bushes (`SceneMeshes.foliage`).
 
 | File | What it does |
 |---|---|
