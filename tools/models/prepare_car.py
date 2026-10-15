@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Turns a car model exported from Blender (or any glTF tool) into the game's car format.
 
-    python3 tools/models/prepare_car.py in.glb out.glb [--nose -z|+z]
+    python3 tools/models/prepare_car.py in.glb out.glb [--nose -z|+z] [--paint NAME]
 
 The game wants the nose towards +Z, Y up, meters, origin on the ground under the car. This
 script turns the model round when its nose points to -Z, bakes every node transform into the
@@ -15,7 +15,7 @@ dozen calls. Four groups are kept as separate nodes so the game can move them:
                        (they glow when the driver brakes)
 
 Materials are copied unchanged, so a material with "paint" in its name still gets the driver's
-color. Texture coordinates and textures are dropped (the game renders flat-shaded materials).
+color; --paint NAME marks the materials whose name contains NAME as paint too. Texture coordinates and textures are dropped (the game renders flat-shaded materials).
 """
 import json
 import re
@@ -84,6 +84,11 @@ def main():
         i = args.index("--nose")
         nose = args[i + 1]
         del args[i:i + 2]
+    paint = None
+    if "--paint" in args:
+        i = args.index("--paint")
+        paint = args[i + 1].lower()
+        del args[i:i + 2]
     src, dst = args
     gltf, binary = read_glb(src)
     turn = np.diag([-1.0, 1, -1, 1]) if nose == "-z" else np.eye(4)
@@ -149,6 +154,8 @@ def main():
            "materials": [{k: v for k, v in m.items() if k not in ("normalTexture", "occlusionTexture")}
                          for m in gltf.get("materials", [])]}
     for m in out["materials"]:
+        if paint and paint in m.get("name", "").lower() and "paint" not in m["name"].lower():
+            m["name"] += " | paint"
         pbr = m.get("pbrMetallicRoughness", {})
         pbr.pop("baseColorTexture", None)
         pbr.pop("metallicRoughnessTexture", None)
