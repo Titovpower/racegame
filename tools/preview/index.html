@@ -1,0 +1,407 @@
+<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;background:#000">
+<div style="position:relative;width:1280px;height:640px">
+<canvas id="c" width="1280" height="640" style="position:absolute;width:1280px;height:640px"></canvas>
+<canvas id="o" width="1280" height="640" style="position:absolute"></canvas>
+</div>
+<script>
+// Renders the exported scene with WebGL 2 and the app's own GLSL ES 3.00 shaders (GlShaders.kt),
+// drawing it the way GlRenderer.kt does: shadow cascades, sky, then the glTF assets.
+const q = new URLSearchParams(location.search);
+const dir = q.get('dir'), hud = q.get('hud') !== '0';
+
+// Binary glTF reader (mirrors Gltf.kt): primitives with node transforms, materials, images.
+function parseGlb(bytes) {
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let off = 12, json, bin = 0;
+  while (off + 8 <= bytes.length) {
+    const len = dv.getUint32(off, true), type = dv.getUint32(off + 4, true);
+    if (type === 0x4E4F534A) json = JSON.parse(new TextDecoder().decode(bytes.subarray(off + 8, off + 8 + len)));
+    if (type === 0x004E4942) bin = off + 8;
+    off += 8 + len;
+  }
+  const views = json.bufferViews || [], accs = json.accessors || [];
+  const comps = {SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT4: 16};
+  function floats(a) {
+    const acc = accs[a], n = comps[acc.type], ct = acc.componentType, size = {5120: 1, 5121: 1, 5122: 2, 5123: 2}[ct] || 4;
+    const view = views[acc.bufferView], stride = view.byteStride || n * size, base = bin + (view.byteOffset || 0) + (acc.byteOffset || 0);
+    const out = new Float32Array(acc.count * n);
+    for (let i = 0; i < acc.count; i++) for (let c = 0; c < n; c++) {
+      const p = base + i * stride + c * size;
+      out[i * n + c] = ct === 5126 ? dv.getFloat32(p, true) : ct === 5121 ? dv.getUint8(p) / (acc.normalized ? 255 : 1)
+        : ct === 5123 ? dv.getUint16(p, true) / (acc.normalized ? 65535 : 1) : dv.getUint32(p, true);
+    }
+    return [out, n];
+  }
+  function indices(a) {
+    const acc = accs[a], view = views[acc.bufferView], base = bin + (view.byteOffset || 0) + (acc.byteOffset || 0);
+    const out = new Uint32Array(acc.count);
+    for (let i = 0; i < acc.count; i++) out[i] = acc.componentType === 5121 ? dv.getUint8(base + i) : acc.componentType === 5123 ? dv.getUint16(base + i * 2, true) : dv.getUint32(base + i * 4, true);
+    return out;
+  }
+  const images = (json.images || []).map(im => { const v = views[im.bufferView]; return new Blob([bytes.slice(bin + (v.byteOffset || 0), bin + (v.byteOffset || 0) + v.byteLength)], {type: im.mimeType}); });
+  const textures = json.textures || [];
+  const materials = (json.materials || []).map(m => {
+    const pbr = m.pbrMetallicRoughness || {}, cc = (m.extensions || {}).KHR_materials_clearcoat;
+    const t = pbr.baseColorTexture ? pbr.baseColorTexture.index : -1;
+    return {name: m.name || '', baseColor: pbr.baseColorFactor || [1, 1, 1, 1], metallic: pbr.metallicFactor ?? 1, roughness: pbr.roughnessFactor ?? 1,
+      emissive: m.emissiveFactor || [0, 0, 0], clearcoat: cc ? cc.clearcoatFactor || 0 : 0, clearcoatRoughness: cc ? cc.clearcoatRoughnessFactor || 0 : 0,
+      image: t >= 0 ? textures[t].source : -1, doubleSided: !!m.doubleSided, blend: m.alphaMode === 'BLEND'};
+  });
+  const prims = [];
+  function visit(n, parent) {
+    const node = json.nodes[n], world = mul(parent, node.matrix || trs(node));
+    if (node.mesh !== undefined) for (const p of json.meshes[node.mesh].primitives) {
+      if ((p.mode ?? 4) !== 4) continue;
+      const pos = floats(p.attributes.POSITION)[0];
+      let col = null;
+      if (p.attributes.COLOR_0 !== undefined) {
+        const [c, k] = floats(p.attributes.COLOR_0);
+        col = k === 4 ? c : Float32Array.from({length: c.length / 3 * 4}, (_, i) => i % 4 === 3 ? 1 : c[(i >> 2) * 3 + i % 4]);
+      }
+      prims.push({node: node.name || '', matrix: world, material: p.material || 0, positions: pos, normals: floats(p.attributes.NORMAL)[0], colors: col,
+        uvs: p.attributes.TEXCOORD_0 !== undefined ? floats(p.attributes.TEXCOORD_0)[0] : null,
+        indices: p.indices !== undefined ? indices(p.indices) : Uint32Array.from({length: pos.length / 3}, (_, i) => i)});
+    }
+    for (const c of node.children || []) visit(c, world);
+  }
+  for (const r of json.scenes[json.scene || 0].nodes) visit(r, IDENTITY);
+  return {prims, materials, images};
+}
+const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+function mul(a, b) { const o = new Array(16); for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) { let s = 0; for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k]; o[c * 4 + r] = s; } return o; }
+function trs(n) {
+  const t = n.translation || [0, 0, 0], [x, y, z, w] = n.rotation || [0, 0, 0, 1], s = n.scale || [1, 1, 1];
+  return [(1 - 2 * (y * y + z * z)) * s[0], 2 * (x * y + z * w) * s[0], 2 * (x * z - y * w) * s[0], 0,
+    2 * (x * y - z * w) * s[1], (1 - 2 * (x * x + z * z)) * s[1], 2 * (y * z + x * w) * s[1], 0,
+    2 * (x * z + y * w) * s[2], 2 * (y * z - x * w) * s[2], (1 - 2 * (x * x + y * y)) * s[2], 0, t[0], t[1], t[2], 1];
+}
+const det3 = m => m[0] * (m[5] * m[10] - m[6] * m[9]) - m[4] * (m[1] * m[10] - m[2] * m[9]) + m[8] * (m[1] * m[6] - m[2] * m[5]);
+
+async function main() {
+  const frame = await (await fetch(dir + '/frame.json')).json();
+  const keys = ['world', 'wheel', ...new Set(frame.cars.map(c => c.asset))];
+  const models = {};
+  for (const k of keys) models[k] = parseGlb(new Uint8Array(await (await fetch(dir + '/' + k + '.glb')).arrayBuffer()));
+  const skyData = new Float32Array(await (await fetch(dir + '/sky.bin')).arrayBuffer());
+  const c = document.getElementById('c');
+  const gl = c.getContext('webgl2', {antialias: true, preserveDrawingBuffer: true});
+  if (!gl) throw new Error('no WebGL 2');
+
+  function link(vs, fs) {
+    const prog = gl.createProgram();
+    for (const [type, src] of [[gl.VERTEX_SHADER, vs], [gl.FRAGMENT_SHADER, fs]]) {
+      const sh = gl.createShader(type); gl.shaderSource(sh, src); gl.compileShader(sh);
+      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error('compile: ' + gl.getShaderInfoLog(sh));
+      gl.attachShader(prog, sh);
+    }
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error('link: ' + gl.getProgramInfoLog(prog));
+    return prog;
+  }
+  const S = frame.shaders;
+  const program = link(S.vertex, S.fragment), skyProgram = link(S.skyVertex, S.skyFragment), shadowProgram = link(S.shadowVertex, S.shadowFragment);
+  const uCache = new Map();
+  const u = (p, name) => { const k = p; if (!uCache.has(k)) uCache.set(k, {}); const m = uCache.get(k); if (!(name in m)) m[name] = gl.getUniformLocation(p, name); return m[name]; };
+
+  // Upload models.
+  async function upload(model) {
+    const tex = [];
+    for (const blob of model.images) {
+      const img = await createImageBitmap(blob, {premultiplyAlpha: 'none', colorSpaceConversion: 'none'});
+      const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.SRGB8_ALPHA8, gl.RGBA, gl.UNSIGNED_BYTE, img);
+      gl.generateMipmap(gl.TEXTURE_2D);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+      tex.push(t);
+    }
+    const prims = model.prims.map(p => {
+      const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+      const attr = (loc, data, n) => { const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, n, gl.FLOAT, false, 0, 0); };
+      attr(0, p.positions, 3); attr(1, p.normals, 3);
+      if (p.colors) attr(2, p.colors, 4); else gl.vertexAttrib4f(2, 1, 1, 1, 1);
+      if (p.uvs) attr(3, p.uvs, 2); else gl.vertexAttrib4f(3, 0, 0, 0, 1);
+      const ib = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, p.indices, gl.STATIC_DRAW);
+      gl.bindVertexArray(null);
+      return {vao, count: p.indices.length, material: model.materials[p.material], matrix: p.matrix, mirrored: det3(p.matrix) < 0};
+    });
+    return {prims, tex};
+  }
+  const gpu = {};
+  for (const k of keys) gpu[k] = await upload(models[k]);
+
+  // Sky cubemap.
+  const skyTex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_CUBE_MAP, skyTex);
+  const levels = Math.log2(frame.skySize) + 1;
+  let off = 0;
+  for (let l = 0, s = frame.skySize; l < levels; l++, s = Math.max(1, s >> 1)) {
+    for (let f = 0; f < 6; f++) {
+      const n = s * s * 3;
+      gl.texImage2D(gl.TEXTURE_CUBE_MAP_POSITIVE_X + f, l, gl.R11F_G11F_B10F, s, s, 0, gl.RGB, gl.FLOAT, skyData.subarray(off, off + n));
+      off += n;
+    }
+  }
+  gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAX_LEVEL, levels - 1);
+  gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+  // Shadow maps.
+  const shadowTex = [], shadowFbo = [], SZ = frame.shadowSize;
+  for (let k = 0; k < 2; k++) {
+    const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.DEPTH_COMPONENT24, SZ, SZ);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_MODE, gl.COMPARE_REF_TO_TEXTURE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_FUNC, gl.LEQUAL);
+    const fb = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, t, 0);
+    gl.drawBuffers([gl.NONE]); gl.readBuffer(gl.NONE);
+    shadowTex.push(t); shadowFbo.push(fb);
+  }
+
+  const BRAKE_GLOW = [6, 0.12, 0.06];
+  const items = [{m: gpu.world, matrix: IDENTITY}];
+  for (const car of frame.cars) items.push({m: gpu[car.asset], matrix: car.model, emissive: car.braking ? BRAKE_GLOW : null});
+  for (const w of frame.wheels) items.push({m: gpu.wheel, matrix: w});
+
+  gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE);
+  // Shadows.
+  gl.useProgram(shadowProgram);
+  gl.viewport(0, 0, SZ, SZ);
+  gl.disable(gl.CULL_FACE); gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(1.5, 3);
+  for (let k = 0; k < 2; k++) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, shadowFbo[k]); gl.clear(gl.DEPTH_BUFFER_BIT);
+    gl.uniformMatrix4fv(u(shadowProgram, 'uLightVP'), false, k ? frame.lightVP1 : frame.lightVP0);
+    for (const it of (k ? items.slice(0, 1) : items)) for (const p of it.m.prims) {
+      if (p.node === 'fence' && !frame.safe) continue;
+      if (p.material.blend || p.material.name === "FOLIAGE") continue;
+      gl.uniformMatrix4fv(u(shadowProgram, 'uModel'), false, mul(it.matrix, p.matrix));
+      gl.bindVertexArray(p.vao); gl.drawElements(gl.TRIANGLES, p.count, gl.UNSIGNED_INT, 0);
+    }
+  }
+  gl.disable(gl.POLYGON_OFFSET_FILL); gl.enable(gl.CULL_FACE);
+
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, c.width, c.height);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  const skyScale = frame.skyIntensity * frame.exposureValue;
+  // Sky.
+  gl.useProgram(skyProgram);
+  gl.depthFunc(gl.LEQUAL); gl.depthMask(false);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_CUBE_MAP, skyTex);
+  gl.uniform1i(u(skyProgram, 'uSky'), 0);
+  gl.uniform1f(u(skyProgram, 'uSkyScale'), skyScale);
+  gl.uniformMatrix4fv(u(skyProgram, 'uInvViewProj'), false, frame.skyInvViewProj);
+  gl.bindVertexArray(gl.createVertexArray()); gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.depthMask(true);
+  // Scene.
+  const p = program;
+  gl.useProgram(p);
+  gl.uniformMatrix4fv(u(p, 'uViewProj'), false, frame.viewProj);
+  gl.uniformMatrix4fv(u(p, 'uLightVP0'), false, frame.lightVP0);
+  gl.uniformMatrix4fv(u(p, 'uLightVP1'), false, frame.lightVP1);
+  gl.uniform2f(u(p, 'uNormalBias'), frame.shadowTexel[0] * 1.5, frame.shadowTexel[1] * 1.5);
+  gl.uniform2f(u(p, 'uShadowTexel'), 1 / SZ, 1 / SZ);
+  gl.uniform1f(u(p, 'uShadowOn'), 1);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_CUBE_MAP, skyTex); gl.uniform1i(u(p, 'uSky'), 1);
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, shadowTex[0]); gl.uniform1i(u(p, 'uShadow0'), 2);
+  gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, shadowTex[1]); gl.uniform1i(u(p, 'uShadow1'), 3);
+  gl.uniform1i(u(p, 'uTex'), 0);
+  gl.uniform1f(u(p, 'uSkyMaxLod'), levels - 1);
+  gl.uniform1f(u(p, 'uSkyScale'), skyScale);
+  gl.uniform3fv(u(p, 'uSh'), frame.sh);
+  const lux = frame.sunLux * frame.exposureValue;
+  gl.uniform3fv(u(p, 'uSunDir'), frame.sun);
+  gl.uniform3f(u(p, 'uSunColor'), 1.0 * lux, 0.95 * lux, 0.88 * lux);
+  gl.uniform3fv(u(p, 'uCamPos'), frame.cam);
+  gl.uniform4fv(u(p, 'uFog'), q.has('nofog') ? [1e9, 0, 0.02, 0] : frame.fog);
+  const nCars = Math.min(frame.footprints.length / 4, frame.maxCars);
+  gl.uniform4fv(u(p, 'uCars'), frame.footprints.slice(0, nCars * 4));
+  gl.uniform1i(u(p, 'uCarCount'), nCars);
+  for (const blend of [false, true]) {
+    if (blend) { gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false); }
+    for (const it of items) {
+      const outerMirrored = det3(it.matrix) < 0;
+      for (const pr of it.m.prims) {
+        if (pr.node === 'fence' && !frame.safe) continue;
+        const m = pr.material;
+        if (m.blend !== blend) continue;
+        gl.uniformMatrix4fv(u(p, 'uModel'), false, mul(it.matrix, pr.matrix));
+        gl.uniform4fv(u(p, 'uBaseColor'), m.baseColor);
+        gl.uniform1f(u(p, 'uMetallic'), m.metallic); gl.uniform1f(u(p, 'uRoughness'), m.roughness);
+        gl.uniform1f(u(p, 'uClearcoat'), m.clearcoat); gl.uniform1f(u(p, 'uClearcoatRoughness'), m.clearcoatRoughness);
+        gl.uniform3fv(u(p, 'uEmissive'), it.emissive && m.name === 'LAMP' ? it.emissive : m.emissive);
+        const t = m.image >= 0 ? it.m.tex[m.image] : null;
+        gl.uniform1f(u(p, 'uHasTex'), t ? 1 : 0);
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, t);
+        if (m.doubleSided) gl.disable(gl.CULL_FACE); else gl.enable(gl.CULL_FACE);
+        gl.frontFace(pr.mirrored !== outerMirrored ? gl.CW : gl.CCW);
+        gl.bindVertexArray(pr.vao); gl.drawElements(gl.TRIANGLES, pr.count, gl.UNSIGNED_INT, 0);
+      }
+    }
+  }
+  gl.finish();
+  if (hud) overlay(frame);
+  document.title = 'done';
+}
+// Approximation of ControlOverlayView (Android Canvas) for the preview.
+function picker(frame) {
+  const g = document.getElementById('o').getContext('2d'), W = 1280, H = 640, d = 2;
+  const [brand, model, hp, zt, top] = frame.car.split('|');
+  const pw = Math.min(W * 0.62, 460 * d), ph = 186 * d, left = (W - pw) / 2, t = H - ph - 16 * d;
+  g.fillStyle = 'rgba(12,14,18,0.59)'; g.beginPath(); g.roundRect(left, t, pw, ph, 16 * d); g.fill();
+  g.textAlign = 'center'; g.shadowColor = 'black'; g.shadowBlur = 3;
+  g.font = `bold ${12*d}px sans-serif`; g.fillStyle = 'rgba(255,255,255,0.8)'; g.fillText('CHOOSE YOUR CAR', W / 2, t + 22 * d);
+  g.fillStyle = 'white'; g.font = `italic bold ${26*d}px sans-serif`; g.fillText(brand.toUpperCase(), W / 2, t + 52 * d);
+  g.font = `bold ${15*d}px sans-serif`; g.fillText(model, W / 2, t + 72 * d);
+  g.font = `bold ${12*d}px sans-serif`; g.fillStyle = 'rgba(255,255,255,0.8)';
+  g.fillText(`${hp} hp   ·   0-100 km/h ${Number(zt).toFixed(1)} s   ·   ${top} km/h`, W / 2, t + 94 * d);
+  g.fillStyle = 'white'; g.font = `bold ${34*d}px sans-serif`;
+  g.fillText('◀', left + 32 * d, t + 55 * d + 12 * d); g.fillText('▶', left + pw - 32 * d, t + 55 * d + 12 * d);
+  // "Safe driving" checkbox.
+  const box = 18 * d, label = 'SAFE DRIVING  ·  fences along the track';
+  g.font = `bold ${15*d}px sans-serif`; g.textAlign = 'left';
+  const rowW = box + 10 * d + g.measureText(label).width, bx = W / 2 - rowW / 2, cy = t + 112 * d;
+  g.shadowBlur = 0;
+  g.fillStyle = frame.safe ? 'rgb(200,16,46)' : 'rgba(0,0,0,0.43)'; g.beginPath(); g.roundRect(bx, cy, box, box, 4 * d); g.fill();
+  g.strokeStyle = 'white'; g.lineWidth = 2 * d; g.lineCap = 'round'; g.stroke();
+  if (frame.safe) { g.beginPath(); g.moveTo(bx + box * 0.22, cy + box * 0.52); g.lineTo(bx + box * 0.43, cy + box * 0.74); g.lineTo(bx + box * 0.8, cy + box * 0.28); g.stroke(); }
+  g.shadowBlur = 3; g.fillStyle = 'white'; g.fillText(label, bx + box + 10 * d, cy + box * 0.5 + 15 * d * 0.35);
+  g.textAlign = 'center';
+  g.shadowBlur = 0;
+  const bw = 150 * d, bh = 34 * d, by = t + ph - bh - 10 * d;
+  g.fillStyle = 'rgb(200,16,46)'; g.beginPath(); g.roundRect(W / 2 - bw / 2, by, bw, bh, bh / 2); g.fill();
+  g.fillStyle = 'white'; g.font = `bold ${15*d}px sans-serif`; g.fillText('START RACE', W / 2, by + bh / 2 + 15 * d * 0.35);
+}
+function overlay(frame) {
+  if (frame.picking) return picker(frame);
+  const g = document.getElementById('o').getContext('2d'), W = 1280, H = 640, d = 2;
+  const r = Math.min(H * 0.17, W * 0.13), cx = W / 2, cy = H - r - 14 * d;
+  g.textAlign = 'center'; g.font = `bold ${12*d}px sans-serif`; g.fillStyle = 'rgba(255,255,255,0.8)';
+  g.shadowColor = 'black'; g.shadowBlur = 3;
+  g.fillText('▲ GAS', cx, cy - r * 1.28); g.fillText('▼ BRAKE', cx, cy + r * 1.05 + 12 * d);
+  g.fillText('◀', cx - r * 1.35, cy + 5 * d); g.fillText('▶', cx + r * 1.35, cy + 5 * d);
+  g.shadowBlur = 0;
+  const ring = r * 0.88;
+  g.lineWidth = r * 0.16; g.strokeStyle = 'rgba(30,30,34,0.9)'; g.beginPath(); g.arc(cx, cy, ring, 0, 7); g.stroke();
+  g.lineWidth = r * 0.04; g.strokeStyle = 'rgba(90,90,98,0.8)'; g.beginPath(); g.arc(cx, cy, ring + r * 0.056, 0, 7); g.stroke();
+  g.lineWidth = r * 0.13; g.lineCap = 'round'; g.strokeStyle = 'rgba(55,55,60,0.9)';
+  g.beginPath(); g.moveTo(cx - ring, cy); g.lineTo(cx + ring, cy); g.moveTo(cx, cy); g.lineTo(cx, cy + ring); g.stroke();
+  g.fillStyle = 'rgba(40,40,44,0.94)'; g.beginPath(); g.arc(cx, cy, r * 0.27, 0, 7); g.fill();
+  g.fillStyle = 'rgb(229,57,53)'; g.beginPath(); g.arc(cx, cy, r * 0.1, 0, 7); g.fill();
+  g.lineCap = 'butt'; g.lineWidth = r * 0.16; g.strokeStyle = 'rgb(229,57,53)'; g.beginPath(); g.arc(cx, cy, ring, (260) * Math.PI / 180, 280 * Math.PI / 180); g.stroke();
+  g.textAlign = 'left'; g.shadowBlur = 4; g.shadowOffsetY = 2; g.fillStyle = 'white';
+  g.font = `italic bold ${40*d}px sans-serif`; const sp = String(Math.floor(frame.speed)); g.fillText(sp, 16*d, 16*d + 40*d);
+  const w = g.measureText(sp).width; g.font = `bold ${15*d}px sans-serif`; g.fillText('km/h', 16*d + w + 6*d, 16*d + 40*d);
+  g.shadowBlur = 0; g.shadowOffsetY = 0;
+  g.fillStyle = frame.surface === 'GRASS' ? 'rgba(56,142,60,0.86)' : 'rgba(66,66,72,0.86)';
+  const tw = g.measureText(frame.surface).width + 20 * d, top = 16*d + 40*d + 10*d;
+  g.beginPath(); g.roundRect(16*d, top, tw, 15*d + 12*d, 8*d); g.fill();
+  g.fillStyle = 'white'; g.fillText(frame.surface, 26*d, top + 15*d + 3*d);
+  // Rev bar, rpm and gear.
+  const bt = top + 15*d + 12*d + 10*d, bw = 150*d, bh = 8*d, fr = Math.min(1, frame.rpm / frame.redline);
+  g.fillStyle = 'rgba(0,0,0,0.43)'; g.beginPath(); g.roundRect(16*d, bt, bw, bh, bh/2); g.fill();
+  g.fillStyle = fr > 0.92 ? 'rgb(229,57,53)' : fr > 0.75 ? 'rgb(255,179,0)' : 'rgb(250,250,250)';
+  g.beginPath(); g.roundRect(16*d, bt, bw * fr, bh, bh/2); g.fill();
+  g.fillStyle = 'white'; g.fillText(String(frame.gear), 16*d + bw + 8*d, bt + bh + 2*d);
+  g.font = `bold ${12*d}px sans-serif`; g.fillText(`${Math.round(frame.rpm / 10) * 10} rpm`, 16*d, bt + bh + 16*d);
+  // Position and lap, top right.
+  g.textAlign = 'right'; g.shadowBlur = 4; g.shadowOffsetY = 2;
+  g.font = `italic bold ${40*d}px sans-serif`; g.fillText(`P${frame.position}/${frame.standings.length}`, W - 16*d, 16*d + 40*d);
+  g.font = `bold ${15*d}px sans-serif`; g.fillText(`LAP ${frame.lap}/${frame.totalLaps}`, W - 16*d, 16*d + 44*d + 21*d);
+  g.shadowBlur = 0; g.shadowOffsetY = 0; g.textAlign = 'left';
+  // Ranking, bottom left.
+  const pad = 12*d, rowH = 17*d, headerH = 20*d, panelW = 196*d, bottom = H - pad;
+  const ptop = bottom - headerH - frame.standings.length * rowH - 6*d;
+  g.fillStyle = 'rgba(12,14,18,0.59)'; g.beginPath(); g.roundRect(pad, ptop, panelW, bottom - ptop, 10*d); g.fill();
+  g.font = `bold ${12*d}px sans-serif`; g.fillStyle = 'rgba(255,255,255,0.78)'; g.fillText('RANKING', pad + 10*d, ptop + headerH - 5*d);
+  frame.standings.forEach((r, k) => {
+    const y0 = ptop + headerH + k * rowH, base = y0 + rowH - 4.5*d;
+    if (r.player) { g.fillStyle = 'rgba(200,16,46,0.78)'; g.beginPath(); g.roundRect(pad + 4*d, y0, panelW - 8*d, rowH, 6*d); g.fill(); }
+    g.fillStyle = 'white'; g.textAlign = 'right'; g.fillText(String(k + 1), pad + 24*d, base); g.textAlign = 'left';
+    g.fillStyle = '#' + r.color.toString(16).padStart(6, '0'); g.beginPath(); g.arc(pad + 36*d, y0 + rowH / 2, 5*d, 0, 7); g.fill();
+    g.fillStyle = 'white'; g.fillText(r.name, pad + 47*d, base);
+    g.fillStyle = r.player ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.67)'; g.fillText(r.car, pad + 112*d, base);
+  });
+  settings(g, W, H, d);
+  if (frame.win) win(frame, g, W, H, d);
+  if (frame.countdown > 0) {
+    const n = Math.ceil(frame.countdown - 0.5);
+    if (n >= 1 && n <= 3) { g.textAlign = 'center'; g.font = `italic bold ${72*d}px sans-serif`; g.shadowBlur = 8; g.fillText(String(n), W / 2, H * 0.32); g.shadowBlur = 0; }
+  }
+}
+// Gear button bottom right; with &settings the sensitivity panel is open (as in ControlOverlayView).
+function settings(g, W, H, d) {
+  const gr = 22*d, gx = W - gr - 18*d, gy = H - gr - 18*d;
+  g.fillStyle = 'rgba(12,14,18,0.59)'; g.beginPath(); g.arc(gx, gy, gr * 1.25, 0, 7); g.fill();
+  g.fillStyle = 'rgba(235,235,240,0.9)';
+  g.save(); g.translate(gx, gy);
+  for (let k = 0; k < 8; k++) { g.rotate(Math.PI / 4); g.beginPath(); g.roundRect(-gr*0.17, -gr*0.82, gr*0.34, gr*0.37, gr*0.05); g.fill(); }
+  g.beginPath(); g.arc(0, 0, gr * 0.58, 0, 7); g.fill();
+  g.fillStyle = 'rgb(30,32,38)'; g.beginPath(); g.arc(0, 0, gr * 0.25, 0, 7); g.fill();
+  g.restore();
+  if (!q.has('settings')) return;
+  // &settings=gl opens the OpenGL tab.
+  const tab = q.get('settings') === 'gl' ? 1 : 0;
+  const pw = Math.min(W * 0.8, 480*d), ph = Math.min(H - 16*d, 340*d), left = (W - pw) / 2, top = (H - ph) / 2;
+  g.fillStyle = 'rgba(12,14,18,0.9)'; g.beginPath(); g.roundRect(left, top, pw, ph, 16*d); g.fill();
+  const tabH = 30*d, tabW = (pw - 40*d) / 2;
+  ['CONTROL SENSITIVITY', 'OPENGL GRAPHICS'].forEach((name, t) => {
+    const x = left + 20*d + t * tabW, y = top + 12*d;
+    g.fillStyle = t === tab ? 'rgb(229,57,53)' : 'rgba(255,255,255,0.24)';
+    g.beginPath(); g.roundRect(x, y, tabW, tabH, tabH / 2); g.fill();
+    g.fillStyle = 'white'; g.font = `bold ${12*d}px sans-serif`; g.textAlign = 'center';
+    g.fillText(name, x + tabW / 2, y + tabH / 2 + 4*d);
+  });
+  const bw = 110*d, bh = 30*d, by = top + ph - bh - 10*d;
+  const bodyTop = top + 12*d + tabH + 8*d, bodyBottom = by - 6*d;
+  g.font = `bold ${15*d}px sans-serif`;
+  if (tab === 0) {
+    const rowH = (bodyBottom - bodyTop) / 3;
+    [['Steering wheel', 1.4], ['Acceleration', 1.0], ['Brakes', 0.8]].forEach(([name, v], k) => {
+      const y = bodyTop + rowH * k + rowH * 0.42;
+      g.fillStyle = 'white'; g.textAlign = 'left'; g.fillText(name, left + 20*d, y);
+      g.textAlign = 'right'; g.fillText(`${Math.round(v * 100)}%`, left + pw - 20*d, y);
+      const tl = left + 20*d, tw = pw - 40*d, t = (v - 0.4) / 2.1, kx = tl + t * tw;
+      g.fillStyle = 'rgba(0,0,0,0.43)'; g.beginPath(); g.roundRect(tl, y + 12*d, tw, 6*d, 3*d); g.fill();
+      g.fillStyle = 'rgb(229,57,53)'; g.beginPath(); g.roundRect(tl, y + 12*d, kx - tl, 6*d, 3*d); g.fill();
+      g.fillStyle = 'white'; g.beginPath(); g.arc(kx, y + 15*d, 10*d, 0, 7); g.fill();
+    });
+  } else {
+    // Same rows and defaults as GraphicsOption in Settings.kt.
+    const options = [['Resolution', ['Auto', '100%', '75%', '50%'], 0], ['Anti-aliasing', ['Off', 'FXAA', 'MSAA 4x'], 2],
+      ['Shadows', ['Off', 'Low', 'High'], 2], ['Ambient occlusion', ['Off', 'On'], 1], ['Bloom', ['Off', 'On'], 1],
+      ['Grass & leaves', ['Off', 'On'], 1], ['Frame rate', ['30', '60', 'Max'], 2]];
+    const rowH = (bodyBottom - bodyTop) / options.length, ch = Math.min(rowH - 6*d, 26*d), cw = 58*d, gap = 6*d;
+    const fs = Math.min(15*d, rowH * 0.5), cs = Math.min(12*d, ch * 0.5);
+    options.forEach(([name, choices, sel], k) => {
+      const cy = bodyTop + rowH * (k + 0.5);
+      g.font = `bold ${fs}px sans-serif`; g.fillStyle = 'white'; g.textAlign = 'left';
+      g.fillText(name, left + 20*d, cy + fs * 0.35);
+      let x = left + pw - 20*d - choices.length * cw - (choices.length - 1) * gap;
+      choices.forEach((c, i) => {
+        g.fillStyle = i === sel ? 'rgb(229,57,53)' : 'rgba(255,255,255,0.24)';
+        g.beginPath(); g.roundRect(x, cy - ch / 2, cw, ch, ch / 2); g.fill();
+        g.fillStyle = 'white'; g.font = `bold ${cs}px sans-serif`; g.textAlign = 'center';
+        g.fillText(c, x + cw / 2, cy + cs * 0.35);
+        x += cw + gap;
+      });
+    });
+  }
+  g.font = `bold ${15*d}px sans-serif`;
+  g.fillStyle = 'rgb(200,16,46)'; g.beginPath(); g.roundRect(W / 2 - bw / 2, by, bw, bh, bh / 2); g.fill();
+  g.fillStyle = 'white'; g.textAlign = 'center'; g.fillText('DONE', W / 2, by + bh / 2 + 5*d);
+  g.textAlign = 'left';
+}
+function win(frame, g, W, H, d) {
+  const p = frame.winPos || [0.5, 0.35], size = 64 * d;
+  g.textAlign = 'center'; g.font = `italic bold ${size}px sans-serif`;
+  g.lineWidth = size * 0.06; g.strokeStyle = 'white'; g.strokeText('YOU WIN', p[0] * W, p[1] * H);
+  g.shadowColor = 'rgba(0,0,0,0.6)'; g.shadowBlur = 10; g.shadowOffsetY = 4;
+  g.fillStyle = 'rgb(230,20,30)'; g.fillText('YOU WIN', p[0] * W, p[1] * H);
+  g.shadowBlur = 0; g.shadowOffsetY = 0;
+  g.font = `bold ${15*d}px sans-serif`; g.fillStyle = 'white'; g.shadowColor = 'black'; g.shadowBlur = 3;
+  g.fillText(`5 laps done · finished P${frame.position}`, W / 2, p[1] * H + 30 * d); g.shadowBlur = 0;
+}
+main().catch(e => { document.title = 'error: ' + (e.stack || e); });
+</script></body></html>
