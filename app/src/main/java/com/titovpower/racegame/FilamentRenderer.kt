@@ -92,19 +92,14 @@ class FilamentRenderer(
     private var appliedGraphics = -1
     /** Minimum time between rendered frames from the "Frame rate" setting (0 = every frame). */
     private var frameIntervalNanos = 0L
+    /** Whether the sun was built with the "High" shadow maps. */
+    private var sunHighShadows = true
 
     init {
         view.camera = camera
         view.scene = scene
         setupView()
-        LightManager.Builder(LightManager.Type.SUN)
-            .color(1.0f, 0.95f, 0.88f)
-            .intensity(Scene.SUN_LUX)
-            .direction(-Scene.SUN.x, -Scene.SUN.y, -Scene.SUN.z)
-            .sunAngularRadius(1.2f)
-            .castShadows(true)
-            .shadowOptions(shadowOptions(high = true))
-            .build(engine, sun)
+        buildSun(high = true)
         scene.addEntity(sun)
         camera.setExposure(Scene.APERTURE, Scene.SHUTTER, Scene.ISO)
 
@@ -148,6 +143,20 @@ class FilamentRenderer(
         // The OpenGL options from the settings are applied on the first frame (see doFrame).
     }
 
+    /** (Re)creates the sun; its shadow map size can only be set when the light is built. */
+    private fun buildSun(high: Boolean) {
+        engine.lightManager.destroy(sun)
+        LightManager.Builder(LightManager.Type.SUN)
+            .color(1.0f, 0.95f, 0.88f)
+            .intensity(Scene.SUN_LUX)
+            .direction(-Scene.SUN.x, -Scene.SUN.y, -Scene.SUN.z)
+            .sunAngularRadius(1.2f)
+            .castShadows(true)
+            .shadowOptions(shadowOptions(high))
+            .build(engine, sun)
+        sunHighShadows = high
+    }
+
     private fun shadowOptions(high: Boolean) = LightManager.ShadowOptions().apply {
         mapSize = if (high) 2048 else 1024
         shadowCascades = if (high) 3 else 2
@@ -178,12 +187,10 @@ class FilamentRenderer(
 
         val shadows = choice(GraphicsOption.SHADOWS)
         val lm = engine.lightManager
+        view.setShadowingEnabled(shadows != 0)
+        if (shadows != 0 && (shadows == 2) != sunHighShadows) buildSun(high = shadows == 2)
         val light = lm.getInstance(sun)
-        view.isShadowingEnabled = shadows != 0
-        if (light != 0) {
-            lm.setShadowCaster(light, shadows != 0)
-            if (shadows != 0) lm.setShadowOptions(light, shadowOptions(high = shadows == 2))
-        }
+        if (light != 0) lm.setShadowCaster(light, shadows != 0)
 
         view.ambientOcclusionOptions = View.AmbientOcclusionOptions().apply {
             enabled = choice(GraphicsOption.AMBIENT_OCCLUSION) == 1
