@@ -78,7 +78,7 @@ cut in briefly. `gradle sound` in `tools/preview` renders a full-throttle run of
 ## Graphics
 
 Rendering uses [Filament](https://github.com/google/filament), Google's physically based
-rendering engine, on its **Vulkan** backend (phones without Vulkan 1.1 fall back to OpenGL ES 3).
+rendering engine (on its OpenGL ES 3 backend: its Vulkan backend left the world invisible on a phone).
 Lighting is physically based in physical light units: a sun with cascaded soft shadows, an HDR
 sky that lights the scene (spherical harmonics) and reflects in paint and glass, clear-coated
 paint, chrome, textured grass and asphalt, screen-space ambient occlusion, bloom, height fog
@@ -110,7 +110,7 @@ roughness maps are ignored.
 
 ## Tech
 
-Kotlin, with Filament (Vulkan) for rendering and no game engine. All geometry (terrain, track, trees,
+Kotlin, with Filament for rendering and no game engine. All geometry (terrain, track, trees,
 grandstand, cars) is generated in code, including ~30,000 grass tufts along the verges and
 individual leaves on the broadleaf trees and bushes (`SceneMeshes.foliage`).
 
@@ -118,7 +118,7 @@ individual leaves on the broadleaf trees and bushes (`SceneMeshes.foliage`).
 |---|---|
 | `MainActivity.kt` | Fullscreen landscape activity: render surface + control overlay |
 | `ControlOverlayView.kt` | Steering wheel touch control, car picker and HUD |
-| `FilamentRenderer.kt` | Filament on Vulkan: sun, sky, shadows, post-processing, glTF assets; frame loop |
+| `FilamentRenderer.kt` | Filament: sun, sky, shadows, post-processing, glTF assets; frame loop; load errors on screen |
 | `GameLoop.kt` | Steps the simulation each frame and publishes HUD values |
 | `Scene.kt` | Assets, chase camera, shadow cascades and per-frame car/wheel transforms |
 | `Glb.kt` | Writes the procedural meshes as glTF with PBR materials and detail textures |

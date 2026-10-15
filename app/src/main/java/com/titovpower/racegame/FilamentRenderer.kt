@@ -1,7 +1,6 @@
 package com.titovpower.racegame
 
 import android.content.Context
-import android.content.pm.PackageManager
 import android.opengl.Matrix
 import android.view.Choreographer
 import android.view.Surface
@@ -29,8 +28,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
- * Renders the race with Filament, Google's physically based rendering engine, on its Vulkan
- * backend (OpenGL ES only on phones without Vulkan 1.1): PBR materials from the glTF assets
+ * Renders the race with Filament, Google's physically based rendering engine: PBR materials from the glTF assets
  * [Scene] generates, a sun with cascaded soft shadows, an HDR sky for reflections and diffuse
  * light, ambient occlusion, bloom, fog, MSAA and filmic tone mapping.
  * Runs the game loop on the main thread, one step per display frame.
@@ -43,22 +41,18 @@ class FilamentRenderer(
 ) : Choreographer.FrameCallback {
 
     companion object {
-        /** PackageManager feature version for Vulkan 1.1. */
-        private const val VULKAN_1_1 = 0x401000
-
         init {
             Filament.init()
             Gltfio.init()
         }
     }
 
-    /** The graphics API Filament drives: Vulkan wherever the phone supports Vulkan 1.1. */
-    val backend: Engine.Backend =
-        if (context.packageManager.hasSystemFeature(PackageManager.FEATURE_VULKAN_HARDWARE_VERSION, VULKAN_1_1)) {
-            Engine.Backend.VULKAN
-        } else {
-            Engine.Backend.OPENGL
-        }
+    /**
+     * The graphics API under Filament: its OpenGL ES backend, the one Filament's glTF loader and its
+     * prebuilt materials are most widely used and tested with. (The Vulkan backend left the world
+     * invisible on a real phone.)
+     */
+    val backend = Engine.Backend.OPENGL
     private val engine = Engine.create(backend)
     private val renderer: Renderer = engine.createRenderer()
     private val scene = engine.createScene()
@@ -172,14 +166,31 @@ class FilamentRenderer(
 
     /** Generates the world and its assets off the main thread, then loads them into Filament. */
     private fun buildWorld() {
+        telemetry.loading = true
         Thread {
-            val game = GameState(World())
-            val scene = Scene(game)
-            val assets = scene.assets
-            val skyLevels = SkyEnvironment.cubemap(Scene.SKY_SIZE)
-            val sh = SkyEnvironment.irradianceSh()
-            surfaceView.post {
-                if (destroyed) return@post
+            try {
+                generateAndLoad()
+            } catch (t: Throwable) {
+                fail(t)
+            }
+        }.start()
+    }
+
+    /** Shows what went wrong on screen instead of an empty world. */
+    private fun fail(t: Throwable) {
+        telemetry.error = "Could not build the world: ${t.javaClass.simpleName}: ${t.message ?: ""}"
+        telemetry.loading = false
+    }
+
+    private fun generateAndLoad() {
+        val game = GameState(World())
+        val scene = Scene(game)
+        val assets = scene.assets
+        val skyLevels = SkyEnvironment.cubemap(Scene.SKY_SIZE)
+        val sh = SkyEnvironment.irradianceSh()
+        surfaceView.post {
+            if (destroyed) return@post
+            try {
                 createSky(skyLevels, sh)
                 for ((key, glb) in assets) {
                     when (key) {
@@ -205,8 +216,11 @@ class FilamentRenderer(
                 }
                 for (a in wheelAssets) this.scene.addEntities(a.entities)
                 loop = GameLoop(game, scene, controls, telemetry)
+                telemetry.loading = false
+            } catch (t: Throwable) {
+                fail(t)
             }
-        }.start()
+        }
     }
 
     private fun load(glb: ByteArray): FilamentAsset {

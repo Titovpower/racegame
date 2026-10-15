@@ -40,4 +40,8 @@ class Telemetry {
     /** Screen position (fractions of width/height) just above the player's car, or negative if off screen. */
     @Volatile var carScreenX = -1f
     @Volatile var carScreenY = -1f
+    /** True while the world is being generated and loaded. */
+    @Volatile var loading = false
+    /** Set when the world could not be built or loaded; shown on screen. */
+    @Volatile var error: String? = null
 }

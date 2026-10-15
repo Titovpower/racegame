@@ -173,6 +173,12 @@ class ControlOverlayView(
     }
 
     override fun onDraw(canvas: Canvas) {
+        val error = telemetry.error
+        if (error != null || telemetry.loading) {
+            drawStatus(canvas, error)
+            postInvalidateOnAnimation()
+            return
+        }
         if (telemetry.picking) {
             drawPicker(canvas)
             postInvalidateOnAnimation()
@@ -544,6 +550,35 @@ class ControlOverlayView(
         canvas.drawRoundRect(closeButton, bh / 2f, bh / 2f, startPaint)
         labelPaint.textAlign = Paint.Align.CENTER
         canvas.drawText("DONE", width / 2f, closeButton.centerY() + labelPaint.textSize * 0.35f, labelPaint)
+        labelPaint.textAlign = Paint.Align.LEFT
+    }
+
+    /** "Loading" while the world is built, or the error if it could not be. */
+    private fun drawStatus(canvas: Canvas, error: String?) {
+        labelPaint.textAlign = Paint.Align.CENTER
+        if (error == null) {
+            canvas.drawText("LOADING THE TRACK…", width / 2f, height / 2f, labelPaint)
+        } else {
+            // Wrap the message over a few lines.
+            val words = error.split(" ")
+            val lines = ArrayList<String>()
+            var line = ""
+            for (w in words) {
+                val next = if (line.isEmpty()) w else "$line $w"
+                if (labelPaint.measureText(next) > width * 0.8f && line.isNotEmpty()) {
+                    lines.add(line)
+                    line = w
+                } else {
+                    line = next
+                }
+            }
+            lines.add(line)
+            var y = height / 2f - lines.size * labelPaint.textSize * 0.7f
+            for (l in lines) {
+                canvas.drawText(l, width / 2f, y, labelPaint)
+                y += labelPaint.textSize * 1.4f
+            }
+        }
         labelPaint.textAlign = Paint.Align.LEFT
     }
 
