@@ -9,6 +9,7 @@ track through grass, woods and hills, seen from a chase camera behind the car.
 ![YOU WIN after 5 laps](docs/win.png)
 ![The six cars](docs/cars.png)
 ![Control sensitivity settings](docs/settings.png)
+![OpenGL graphics settings](docs/settings-graphics.png)
 
 <sub>Screenshots are rendered from the game's own assets with WebGL 2 in headless Chromium (see
 `tools/preview`), with shaders that approximate Filament's lighting; on the phone Filament renders
@@ -54,7 +55,11 @@ A steering wheel sits at the bottom of the screen. Touch it and drag:
 
 The **gear button** in the bottom-right corner opens sliders for the sensitivity of the steering
 wheel, the accelerator and the brakes (40-250%: higher means less finger travel for full lock,
-full throttle or full braking). The settings are saved on the phone.
+full throttle or full braking). Its **OpenGL graphics** tab sets the render resolution (Auto
+lowers it when the phone can't keep up), anti-aliasing (off, FXAA, 4x MSAA), shadows (off, low:
+1024 px maps with 2 cascades, high: 2048 px with 3), ambient occlusion, bloom, the grass blades
+and leaves, and a frame rate cap (30, 60 or the display's rate). Changes apply immediately.
+The settings are saved on the phone.
 
 The ground matters. On **grass** the tires have under half the grip of asphalt, so the car
 accelerates, steers and brakes much more slowly. Tire size counts there: wider tires bite better

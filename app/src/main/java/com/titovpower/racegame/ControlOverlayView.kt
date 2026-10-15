@@ -441,17 +441,28 @@ class ControlOverlayView(
         return y
     }
 
-    // Settings: a gear button in the bottom-right corner opens sliders for the control sensitivities.
+    // Settings: a gear button in the bottom-right corner opens a panel with two tabs: sliders for
+    // the control sensitivities, and the OpenGL graphics options.
     private var settingsOpen = false
+    /** 0 = controls, 1 = OpenGL graphics. */
+    private var settingsTab = 0
     private val gearButton = RectF()
     private val settingsPanel = RectF()
     private val closeButton = RectF()
+    private val tabButtons = Array(2) { RectF() }
     private val sliderTracks = Array(3) { RectF() }
+    private val choiceButtons = GraphicsOption.values().map { o -> Array(o.choices.size) { RectF() } }
     private var draggingSlider = -1
     private val gearPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(230, 235, 235, 240) }
     private val gearHole = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(255, 30, 32, 38) }
     private val sliderFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(229, 57, 53) }
     private val knobPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+    private val choicePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(60, 255, 255, 255) }
+    private val choiceText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        typeface = Typeface.DEFAULT_BOLD
+        textAlign = Paint.Align.CENTER
+    }
 
     private fun sliderValue(k: Int) = when (k) { 0 -> settings.steering; 1 -> settings.throttle; else -> settings.brake }
 
@@ -479,13 +490,20 @@ class ControlOverlayView(
                 if (closeButton.contains(x, y) || !settingsPanel.contains(x, y)) {
                     settingsOpen = false
                     draggingSlider = -1
-                } else {
+                    return true
+                }
+                for (t in 0 until 2) if (tabButtons[t].contains(x, y)) settingsTab = t
+                if (settingsTab == 0) {
                     for (k in 0 until 3) {
                         val tr = sliderTracks[k]
                         if (y in tr.top - 18f * density..tr.bottom + 18f * density && x in tr.left - 14f * density..tr.right + 14f * density) {
                             draggingSlider = k
                             setSlider(k, x)
                         }
+                    }
+                } else {
+                    for ((o, buttons) in GraphicsOption.values().zip(choiceButtons)) {
+                        for ((c, r) in buttons.withIndex()) if (r.contains(x, y)) settings.setGraphics(o, c)
                     }
                 }
             }
@@ -515,20 +533,47 @@ class ControlOverlayView(
         canvas.restore()
         if (!settingsOpen) return
 
-        val pw = min(width * 0.7f, 420f * d)
-        val ph = 230f * d
+        val pw = min(width * 0.8f, 480f * d)
+        val ph = min(height - 16f * d, 340f * d)
         val left = (width - pw) / 2f
         val top = (height - ph) / 2f
         settingsPanel.set(left, top, left + pw, top + ph)
-        panelPaint.alpha = 225
+        panelPaint.alpha = 230
         canvas.drawRoundRect(settingsPanel, 16f * d, 16f * d, panelPaint)
         panelPaint.alpha = 150
+
+        // Tabs.
+        val tabH = 30f * d
+        val tabW = (pw - 40f * d) / 2f
+        val tabNames = arrayOf("CONTROL SENSITIVITY", "OPENGL GRAPHICS")
+        choiceText.textSize = 12f * d
+        for (t in 0 until 2) {
+            val r = tabButtons[t]
+            r.set(left + 20f * d + t * tabW, top + 12f * d, left + 20f * d + (t + 1) * tabW, top + 12f * d + tabH)
+            canvas.drawRoundRect(r, tabH / 2f, tabH / 2f, if (t == settingsTab) sliderFill else choicePaint)
+            canvas.drawText(tabNames[t], r.centerX(), r.centerY() + choiceText.textSize * 0.35f, choiceText)
+        }
+
+        val bw = 110f * d
+        val bh = 30f * d
+        closeButton.set(width / 2f - bw / 2f, top + ph - bh - 10f * d, width / 2f + bw / 2f, top + ph - 10f * d)
+        val bodyTop = top + 12f * d + tabH + 8f * d
+        val bodyBottom = closeButton.top - 6f * d
+        if (settingsTab == 0) drawSensitivity(canvas, left, pw, bodyTop, bodyBottom) else drawGraphics(canvas, left, pw, bodyTop, bodyBottom)
+
+        canvas.drawRoundRect(closeButton, bh / 2f, bh / 2f, startPaint)
         labelPaint.textAlign = Paint.Align.CENTER
-        canvas.drawText("CONTROL SENSITIVITY", width / 2f, top + 30f * d, labelPaint)
+        canvas.drawText("DONE", width / 2f, closeButton.centerY() + labelPaint.textSize * 0.35f, labelPaint)
+        labelPaint.textAlign = Paint.Align.LEFT
+    }
+
+    private fun drawSensitivity(canvas: Canvas, left: Float, pw: Float, top: Float, bottom: Float) {
+        val d = density
         val names = arrayOf("Steering wheel", "Acceleration", "Brakes")
+        val rowH = (bottom - top) / 3f
         labelPaint.textAlign = Paint.Align.LEFT
         for (k in 0 until 3) {
-            val y = top + 62f * d + k * 48f * d
+            val y = top + rowH * k + rowH * 0.42f
             canvas.drawText(names[k], left + 20f * d, y, labelPaint)
             val v = sliderValue(k)
             val pct = String.format(Locale.US, "%d%%", (v * 100).toInt())
@@ -544,13 +589,34 @@ class ControlOverlayView(
             canvas.drawRoundRect(rect, 3f * d, 3f * d, sliderFill)
             canvas.drawCircle(kx, tr.centerY(), 10f * d, knobPaint)
         }
-        val bw = 110f * d
-        val bh = 30f * d
-        closeButton.set(width / 2f - bw / 2f, top + ph - bh - 12f * d, width / 2f + bw / 2f, top + ph - 12f * d)
-        canvas.drawRoundRect(closeButton, bh / 2f, bh / 2f, startPaint)
-        labelPaint.textAlign = Paint.Align.CENTER
-        canvas.drawText("DONE", width / 2f, closeButton.centerY() + labelPaint.textSize * 0.35f, labelPaint)
+    }
+
+    /** One row per OpenGL option: its name and a button per choice, the current one in red. */
+    private fun drawGraphics(canvas: Canvas, left: Float, pw: Float, top: Float, bottom: Float) {
+        val d = density
+        val options = GraphicsOption.values()
+        val rowH = (bottom - top) / options.size
+        val bh = min(rowH - 6f * d, 26f * d)
+        val cw = 58f * d
+        val gap = 6f * d
+        val saved = labelPaint.textSize
+        labelPaint.textSize = min(saved, rowH * 0.5f)
+        choiceText.textSize = min(12f * d, bh * 0.5f)
         labelPaint.textAlign = Paint.Align.LEFT
+        for ((k, o) in options.withIndex()) {
+            val cy = top + rowH * (k + 0.5f)
+            canvas.drawText(o.label, left + 20f * d, cy + labelPaint.textSize * 0.35f, labelPaint)
+            val selected = settings.graphics(o)
+            var x = left + pw - 20f * d - o.choices.size * cw - (o.choices.size - 1) * gap
+            for ((c, name) in o.choices.withIndex()) {
+                val r = choiceButtons[k][c]
+                r.set(x, cy - bh / 2f, x + cw, cy + bh / 2f)
+                canvas.drawRoundRect(r, bh / 2f, bh / 2f, if (c == selected) sliderFill else choicePaint)
+                canvas.drawText(name, r.centerX(), r.centerY() + choiceText.textSize * 0.35f, choiceText)
+                x += cw + gap
+            }
+        }
+        labelPaint.textSize = saved
     }
 
     /** "Loading" while the world is built, or the error if it could not be. */

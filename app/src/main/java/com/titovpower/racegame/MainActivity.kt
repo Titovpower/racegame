@@ -22,11 +22,12 @@ class MainActivity : Activity() {
         val telemetry = Telemetry()
         sound = EngineSound(telemetry)
 
+        val settings = Settings(this)
         val surface = SurfaceView(this)
-        renderer = FilamentRenderer(this, surface, controls, telemetry)
+        renderer = FilamentRenderer(this, surface, controls, telemetry, settings)
         val root = FrameLayout(this)
         root.addView(surface)
-        root.addView(ControlOverlayView(this, controls, telemetry, Settings(this)))
+        root.addView(ControlOverlayView(this, controls, telemetry, settings))
         setContentView(root)
     }
 

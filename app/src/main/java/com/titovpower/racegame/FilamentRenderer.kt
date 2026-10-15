@@ -38,6 +38,7 @@ class FilamentRenderer(
     private val surfaceView: SurfaceView,
     private val controls: Controls,
     private val telemetry: Telemetry,
+    private val settings: Settings,
 ) : Choreographer.FrameCallback {
 
     companion object {
@@ -85,6 +86,12 @@ class FilamentRenderer(
     private var height = 1
     private var lastNanos = 0L
     private val projection = DoubleArray(16)
+    /** The world's grass blades and leaves, shown or hidden by the "Grass & leaves" setting. */
+    private var foliage = 0
+    private var foliageShown = true
+    private var appliedGraphics = -1
+    /** Minimum time between rendered frames from the "Frame rate" setting (0 = every frame). */
+    private var frameIntervalNanos = 0L
 
     init {
         view.camera = camera
@@ -96,15 +103,7 @@ class FilamentRenderer(
             .direction(-Scene.SUN.x, -Scene.SUN.y, -Scene.SUN.z)
             .sunAngularRadius(1.2f)
             .castShadows(true)
-            .shadowOptions(
-                LightManager.ShadowOptions().apply {
-                    mapSize = 2048
-                    shadowCascades = 3
-                    shadowFar = 160f
-                    normalBias = 1f
-                    constantBias = 0.001f
-                },
-            )
+            .shadowOptions(shadowOptions(high = true))
             .build(engine, sun)
         scene.addEntity(sun)
         camera.setExposure(Scene.APERTURE, Scene.SHUTTER, Scene.ISO)
@@ -136,14 +135,6 @@ class FilamentRenderer(
     }
 
     private fun setupView() {
-        view.ambientOcclusionOptions = View.AmbientOcclusionOptions().apply {
-            enabled = true
-            radius = 0.6f
-        }
-        view.bloomOptions = View.BloomOptions().apply {
-            enabled = true
-            strength = 0.08f
-        }
         view.fogOptions = View.FogOptions().apply {
             enabled = true
             distance = 60f
@@ -154,16 +145,64 @@ class FilamentRenderer(
             val c = SkyEnvironment.fogColor
             color = floatArrayOf(c.r, c.g, c.b)
         }
-        view.antiAliasing = View.AntiAliasing.FXAA
+        // The OpenGL options from the settings are applied on the first frame (see doFrame).
+    }
+
+    private fun shadowOptions(high: Boolean) = LightManager.ShadowOptions().apply {
+        mapSize = if (high) 2048 else 1024
+        shadowCascades = if (high) 3 else 2
+        shadowFar = if (high) 160f else 90f
+        normalBias = 1f
+        constantBias = 0.001f
+    }
+
+    /** Applies the OpenGL graphics options from the settings panel. */
+    private fun applyGraphics() {
+        appliedGraphics = settings.graphicsVersion
+        fun choice(o: GraphicsOption) = settings.graphics(o)
+
+        // Resolution: "Auto" lowers it when the phone can't keep the frame rate up.
+        val scale = floatArrayOf(0f, 1f, 0.75f, 0.5f)[choice(GraphicsOption.RESOLUTION)]
+        view.dynamicResolutionOptions = View.DynamicResolutionOptions().apply {
+            enabled = scale != 1f
+            minScale = if (scale == 0f) 0.6f else scale
+            maxScale = if (scale == 0f) 1f else scale
+        }
+
+        val aa = choice(GraphicsOption.ANTI_ALIASING)
+        view.antiAliasing = if (aa == 0) View.AntiAliasing.NONE else View.AntiAliasing.FXAA
         view.multiSampleAntiAliasingOptions = View.MultiSampleAntiAliasingOptions().apply {
-            enabled = true
+            enabled = aa == 2
             sampleCount = 4
         }
-        // Keeps the frame rate up on slower phones by rendering at a lower resolution when needed.
-        view.dynamicResolutionOptions = View.DynamicResolutionOptions().apply {
-            enabled = true
-            minScale = 0.6f
+
+        val shadows = choice(GraphicsOption.SHADOWS)
+        val lm = engine.lightManager
+        val light = lm.getInstance(sun)
+        view.isShadowingEnabled = shadows != 0
+        if (light != 0) {
+            lm.setShadowCaster(light, shadows != 0)
+            if (shadows != 0) lm.setShadowOptions(light, shadowOptions(high = shadows == 2))
         }
+
+        view.ambientOcclusionOptions = View.AmbientOcclusionOptions().apply {
+            enabled = choice(GraphicsOption.AMBIENT_OCCLUSION) == 1
+            radius = 0.6f
+        }
+        view.bloomOptions = View.BloomOptions().apply {
+            enabled = choice(GraphicsOption.BLOOM) == 1
+            strength = 0.08f
+        }
+
+        val showFoliage = choice(GraphicsOption.GRASS) == 1
+        if (foliage != 0 && showFoliage != foliageShown) {
+            if (showFoliage) scene.addEntity(foliage) else scene.removeEntity(foliage)
+        }
+        foliageShown = showFoliage
+
+        val fps = intArrayOf(30, 60, 0)[choice(GraphicsOption.FRAME_RATE)]
+        // A little under the interval, so a 60 Hz display isn't held to every other vsync at 60.
+        frameIntervalNanos = if (fps == 0) 0L else 1_000_000_000L / fps - 4_000_000L
     }
 
     /** Generates the world and its assets off the main thread, then loads them into Filament. */
@@ -199,6 +238,9 @@ class FilamentRenderer(
                         Scene.WORLD -> {
                             val a = load(CustomModels.world(context) ?: glb)
                             this.scene.addEntities(a.entities)
+                            foliage = a.getFirstEntityByName(Scene.FOLIAGE_NODE)
+                            foliageShown = true
+                            appliedGraphics = -1
                         }
                         Scene.WHEEL -> repeat(game.racers.size * 4) { wheelAssets.add(load(glb)) }
                         else -> {
@@ -329,6 +371,8 @@ class FilamentRenderer(
 
     override fun doFrame(frameTimeNanos: Long) {
         choreographer.postFrameCallback(this)
+        if (settings.graphicsVersion != appliedGraphics) applyGraphics()
+        if (lastNanos != 0L && frameTimeNanos - lastNanos < frameIntervalNanos) return
         val dt = if (lastNanos == 0L) 0f else (frameTimeNanos - lastNanos) / 1e9f
         lastNanos = frameTimeNanos
         val loop = loop

@@ -329,20 +329,54 @@ function settings(g, W, H, d) {
   g.fillStyle = 'rgb(30,32,38)'; g.beginPath(); g.arc(0, 0, gr * 0.25, 0, 7); g.fill();
   g.restore();
   if (!q.has('settings')) return;
-  const pw = Math.min(W * 0.7, 420*d), ph = 230*d, left = (W - pw) / 2, top = (H - ph) / 2;
-  g.fillStyle = 'rgba(12,14,18,0.88)'; g.beginPath(); g.roundRect(left, top, pw, ph, 16*d); g.fill();
-  g.fillStyle = 'white'; g.font = `bold ${15*d}px sans-serif`; g.textAlign = 'center';
-  g.fillText('CONTROL SENSITIVITY', W / 2, top + 30*d);
-  [['Steering wheel', 1.4], ['Acceleration', 1.0], ['Brakes', 0.8]].forEach(([name, v], k) => {
-    const y = top + 62*d + k * 48*d;
-    g.fillStyle = 'white'; g.textAlign = 'left'; g.fillText(name, left + 20*d, y);
-    g.textAlign = 'right'; g.fillText(`${Math.round(v * 100)}%`, left + pw - 20*d, y);
-    const tl = left + 20*d, tw = pw - 40*d, t = (v - 0.4) / 2.1, kx = tl + t * tw;
-    g.fillStyle = 'rgba(0,0,0,0.43)'; g.beginPath(); g.roundRect(tl, y + 12*d, tw, 6*d, 3*d); g.fill();
-    g.fillStyle = 'rgb(229,57,53)'; g.beginPath(); g.roundRect(tl, y + 12*d, kx - tl, 6*d, 3*d); g.fill();
-    g.fillStyle = 'white'; g.beginPath(); g.arc(kx, y + 15*d, 10*d, 0, 7); g.fill();
+  // &settings=gl opens the OpenGL tab.
+  const tab = q.get('settings') === 'gl' ? 1 : 0;
+  const pw = Math.min(W * 0.8, 480*d), ph = Math.min(H - 16*d, 340*d), left = (W - pw) / 2, top = (H - ph) / 2;
+  g.fillStyle = 'rgba(12,14,18,0.9)'; g.beginPath(); g.roundRect(left, top, pw, ph, 16*d); g.fill();
+  const tabH = 30*d, tabW = (pw - 40*d) / 2;
+  ['CONTROL SENSITIVITY', 'OPENGL GRAPHICS'].forEach((name, t) => {
+    const x = left + 20*d + t * tabW, y = top + 12*d;
+    g.fillStyle = t === tab ? 'rgb(229,57,53)' : 'rgba(255,255,255,0.24)';
+    g.beginPath(); g.roundRect(x, y, tabW, tabH, tabH / 2); g.fill();
+    g.fillStyle = 'white'; g.font = `bold ${12*d}px sans-serif`; g.textAlign = 'center';
+    g.fillText(name, x + tabW / 2, y + tabH / 2 + 4*d);
   });
-  const bw = 110*d, bh = 30*d, by = top + ph - bh - 12*d;
+  const bw = 110*d, bh = 30*d, by = top + ph - bh - 10*d;
+  const bodyTop = top + 12*d + tabH + 8*d, bodyBottom = by - 6*d;
+  g.font = `bold ${15*d}px sans-serif`;
+  if (tab === 0) {
+    const rowH = (bodyBottom - bodyTop) / 3;
+    [['Steering wheel', 1.4], ['Acceleration', 1.0], ['Brakes', 0.8]].forEach(([name, v], k) => {
+      const y = bodyTop + rowH * k + rowH * 0.42;
+      g.fillStyle = 'white'; g.textAlign = 'left'; g.fillText(name, left + 20*d, y);
+      g.textAlign = 'right'; g.fillText(`${Math.round(v * 100)}%`, left + pw - 20*d, y);
+      const tl = left + 20*d, tw = pw - 40*d, t = (v - 0.4) / 2.1, kx = tl + t * tw;
+      g.fillStyle = 'rgba(0,0,0,0.43)'; g.beginPath(); g.roundRect(tl, y + 12*d, tw, 6*d, 3*d); g.fill();
+      g.fillStyle = 'rgb(229,57,53)'; g.beginPath(); g.roundRect(tl, y + 12*d, kx - tl, 6*d, 3*d); g.fill();
+      g.fillStyle = 'white'; g.beginPath(); g.arc(kx, y + 15*d, 10*d, 0, 7); g.fill();
+    });
+  } else {
+    // Same rows and defaults as GraphicsOption in Settings.kt.
+    const options = [['Resolution', ['Auto', '100%', '75%', '50%'], 0], ['Anti-aliasing', ['Off', 'FXAA', 'MSAA 4x'], 2],
+      ['Shadows', ['Off', 'Low', 'High'], 2], ['Ambient occlusion', ['Off', 'On'], 1], ['Bloom', ['Off', 'On'], 1],
+      ['Grass & leaves', ['Off', 'On'], 1], ['Frame rate', ['30', '60', 'Max'], 2]];
+    const rowH = (bodyBottom - bodyTop) / options.length, ch = Math.min(rowH - 6*d, 26*d), cw = 58*d, gap = 6*d;
+    const fs = Math.min(15*d, rowH * 0.5), cs = Math.min(12*d, ch * 0.5);
+    options.forEach(([name, choices, sel], k) => {
+      const cy = bodyTop + rowH * (k + 0.5);
+      g.font = `bold ${fs}px sans-serif`; g.fillStyle = 'white'; g.textAlign = 'left';
+      g.fillText(name, left + 20*d, cy + fs * 0.35);
+      let x = left + pw - 20*d - choices.length * cw - (choices.length - 1) * gap;
+      choices.forEach((c, i) => {
+        g.fillStyle = i === sel ? 'rgb(229,57,53)' : 'rgba(255,255,255,0.24)';
+        g.beginPath(); g.roundRect(x, cy - ch / 2, cw, ch, ch / 2); g.fill();
+        g.fillStyle = 'white'; g.font = `bold ${cs}px sans-serif`; g.textAlign = 'center';
+        g.fillText(c, x + cw / 2, cy + cs * 0.35);
+        x += cw + gap;
+      });
+    });
+  }
+  g.font = `bold ${15*d}px sans-serif`;
   g.fillStyle = 'rgb(200,16,46)'; g.beginPath(); g.roundRect(W / 2 - bw / 2, by, bw, bh, bh / 2); g.fill();
   g.fillStyle = 'white'; g.textAlign = 'center'; g.fillText('DONE', W / 2, by + bh / 2 + 5*d);
   g.textAlign = 'left';
