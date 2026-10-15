@@ -146,6 +146,29 @@ class GameLogicTest {
         assertEquals(game.playerSpec, game.car.spec)
     }
 
+    /** Farthest the player gets from the centerline steering hard one way at full throttle. */
+    private fun widestLine(safe: Boolean, steer: Float): Float {
+        val game = GameState(World())
+        game.safeDriving = safe
+        game.startRace()
+        var widest = 0f
+        repeat(60 * 20) {
+            game.update(1f / 60f, steer, 1f, 0f)
+            widest = maxOf(widest, game.world.track.nearest(game.car.x, game.car.z).distance)
+        }
+        return widest
+    }
+
+    @Test
+    fun guardrailsKeepTheCarOnTheRoad() {
+        val track = World().track
+        for (steer in floatArrayOf(1f, -1f, 0.3f)) {
+            assertTrue(widestLine(false, steer) > track.fenceOffset + 2f)
+            val safe = widestLine(true, steer)
+            assertTrue("steer $steer: $safe m from the centerline", safe <= track.fenceOffset)
+        }
+    }
+
     @Test
     fun trackCenterIsRoadAndFarAwayIsGrass() {
         val track = Track()

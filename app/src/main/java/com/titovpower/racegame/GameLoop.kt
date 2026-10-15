@@ -14,6 +14,7 @@ class GameLoop(val game: GameState, val scene: Scene, private val controls: Cont
         }
         val pick = controls.pick.getAndSet(0)
         if (pick != 0) game.cycleCar(pick)
+        game.safeDriving = controls.safeDriving
         if (controls.start) {
             controls.start = false
             game.startRace()

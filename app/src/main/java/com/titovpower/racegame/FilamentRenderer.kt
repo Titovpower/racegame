@@ -89,6 +89,9 @@ class FilamentRenderer(
     /** The world's grass blades and leaves, shown or hidden by the "Grass & leaves" setting. */
     private var foliage = 0
     private var foliageShown = true
+    /** The guardrails, in the scene only while "safe driving" is on. */
+    private var fence = 0
+    private var fenceShown = true
     private var appliedGraphics = -1
     /** Minimum time between rendered frames from the "Frame rate" setting (0 = every frame). */
     private var frameIntervalNanos = 0L
@@ -246,6 +249,8 @@ class FilamentRenderer(
                             val a = load(CustomModels.world(context) ?: glb)
                             this.scene.addEntities(a.entities)
                             foliage = a.getFirstEntityByName(Scene.FOLIAGE_NODE)
+                            fence = a.getFirstEntityByName(Scene.FENCE_NODE)
+                            fenceShown = true
                             foliageShown = true
                             appliedGraphics = -1
                         }
@@ -385,7 +390,7 @@ class FilamentRenderer(
         val loop = loop
         if (loop != null) {
             loop.step(dt, width.toFloat() / height.coerceAtLeast(1))
-            updateScene(loop.scene)
+            updateScene(loop.scene, loop.game.safeDriving)
         }
         val chain = swapChain ?: return
         if (!uiHelper.isReadyToRender) return
@@ -395,7 +400,11 @@ class FilamentRenderer(
         }
     }
 
-    private fun updateScene(s: Scene) {
+    private fun updateScene(s: Scene, safeDriving: Boolean) {
+        if (fence != 0 && safeDriving != fenceShown) {
+            if (safeDriving) scene.addEntity(fence) else scene.removeEntity(fence)
+            fenceShown = safeDriving
+        }
         val tm = engine.transformManager
         val rm = engine.renderableManager
         // Cars: only the assets in use this frame are in the scene (the player can switch models).

@@ -12,6 +12,7 @@ fun main(args: Array<String>) {
     val brake = System.getenv("PREVIEW_BRAKE") != null
     val aspect = (System.getenv("PREVIEW_ASPECT") ?: "2.0").toFloat()
     val game = GameState(World())
+    game.safeDriving = System.getenv("PREVIEW_SAFE") != null
     System.getenv("PREVIEW_CAR")?.let { name -> while (!game.playerSpec.brand.startsWith(name, true)) game.cycleCar(1) }
     if (seconds > 0f) game.startRace()
     val track = game.world.track
@@ -87,7 +88,7 @@ fun main(args: Array<String>) {
     sb.append(""""exposure":[${Scene.APERTURE},${Scene.SHUTTER},${Scene.ISO}],"skySize":${Scene.SKY_SIZE},"sh":${arr(SkyEnvironment.irradianceSh())},""")
     val fog = SkyEnvironment.fogColor
     sb.append(""""fogColor":[${fog.r},${fog.g},${fog.b}],"cars":$cars,"wheels":$wheels,""")
-    sb.append(""""speed":${abs(game.car.speed) * 3.6f},"surface":"${game.surface.name}","position":${game.position},"lap":${minOf(game.player.lapsDone + 1, game.totalLaps)},"totalLaps":${game.totalLaps},"countdown":${game.countdown},"picking":${game.phase == GameState.Phase.PICKING},"car":"${game.playerSpec.brand}|${game.playerSpec.model}|${game.playerSpec.powerHp}|${game.playerSpec.zeroTo100}|${game.playerSpec.topSpeedKmh.toInt()}","win":${System.getenv("PREVIEW_WIN") != null},"winPos":${scene.playerScreenPoint(2.3f)?.let { "[${it.first},${it.second}]" } ?: "null"},"rpm":${game.gearbox.rpm},"redline":${game.playerSpec.redline},"gear":${game.gearbox.gear + 1},""")
+    sb.append(""""speed":${abs(game.car.speed) * 3.6f},"surface":"${game.surface.name}","position":${game.position},"lap":${minOf(game.player.lapsDone + 1, game.totalLaps)},"totalLaps":${game.totalLaps},"countdown":${game.countdown},"picking":${game.phase == GameState.Phase.PICKING},"safe":${game.safeDriving},"car":"${game.playerSpec.brand}|${game.playerSpec.model}|${game.playerSpec.powerHp}|${game.playerSpec.zeroTo100}|${game.playerSpec.topSpeedKmh.toInt()}","win":${System.getenv("PREVIEW_WIN") != null},"winPos":${scene.playerScreenPoint(2.3f)?.let { "[${it.first},${it.second}]" } ?: "null"},"rpm":${game.gearbox.rpm},"redline":${game.playerSpec.redline},"gear":${game.gearbox.gear + 1},""")
     sb.append(""""standings":${game.standings.joinToString(",", "[", "]") { "{\"name\":\"${it.name}\",\"car\":\"${it.spec.brand}\",\"color\":${it.color},\"player\":${it.isPlayer}}" }}}""")
     File(out, "frame.json").writeText(sb.toString())
     println("exported ${scene.assets.size} assets, speed=${abs(game.car.speed) * 3.6f} surface=${game.surface.name}")

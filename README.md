@@ -29,6 +29,12 @@ after real cars (proportions from published dimensions, brand names only, no log
 | Audi R8 V10 performance | 620 hp | 1595 kg | 3.1 s | 331 km/h | AWD | 245/30 R20 / 305/30 R20 |
 | Aston Martin Vantage | 665 hp | 1605 kg | 3.5 s | 325 km/h | RWD | 275/35 R21 / 325/30 R21 |
 
+The **SAFE DRIVING** checkbox under the car puts steel guardrails along both edges of the track
+(just outside the curbs) for every car in the race. A car that hits them slides along the rail
+and loses the speed that went into it; a head-on hit bounces it back. The choice is remembered.
+
+![Safe driving: guardrails along the track](docs/safe-driving.png)
+
 The physics take these figures over directly. Engine power (minus drivetrain losses) is limited by
 tire traction at low speed; air drag is solved from the top speed and launch traction from the
 0-100 time, so every car reaches its published numbers (checked by the unit tests). Braking,

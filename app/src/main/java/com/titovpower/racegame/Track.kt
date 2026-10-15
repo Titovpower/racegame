@@ -14,6 +14,8 @@ import kotlin.math.sqrt
 class Track(val samples: Int = 600) {
     val halfWidth = 7f
     val curbWidth = 1.2f
+    /** Distance from the centerline to the guardrails of "safe driving" (just outside the curbs). */
+    val fenceOffset get() = halfWidth + curbWidth + 0.8f
 
     val xs = FloatArray(samples)
     val zs = FloatArray(samples)
@@ -83,6 +85,18 @@ class Track(val samples: Int = 600) {
             }
         }
         return Nearest(bestIdx, sqrt(best))
+    }
+
+    /**
+     * Closest point on the centerline segment after sample [index] to (x, z), as {x, z}.
+     * Use with the index from [nearest] or [nearestLocal].
+     */
+    fun closestPoint(x: Float, z: Float, index: Int): FloatArray {
+        val j = (index + 1) % samples
+        val ax = xs[index]; val az = zs[index]
+        val dx = xs[j] - ax; val dz = zs[j] - az
+        val t = clamp(((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz), 0f, 1f)
+        return floatArrayOf(ax + dx * t, az + dz * t)
     }
 
     /** Distance between consecutive samples (roughly constant). */

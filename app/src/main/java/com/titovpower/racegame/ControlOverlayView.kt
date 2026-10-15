@@ -156,6 +156,10 @@ class ControlOverlayView(
             leftArrow.contains(x, y) -> controls.pick.addAndGet(-1)
             rightArrow.contains(x, y) -> controls.pick.addAndGet(1)
             startButton.contains(x, y) -> controls.start = true
+            safeBox.contains(x, y) -> {
+                settings.safeDriving = !settings.safeDriving
+                controls.safeDriving = settings.safeDriving
+            }
         }
     }
 
@@ -361,6 +365,12 @@ class ControlOverlayView(
         typeface = Typeface.DEFAULT_BOLD
     }
     private val startPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(200, 16, 46) }
+    private val safeBox = RectF()
+    private val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = Color.WHITE
+        strokeCap = Paint.Cap.ROUND
+    }
     private val winPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.rgb(230, 20, 30)
         textAlign = Paint.Align.CENTER
@@ -378,7 +388,7 @@ class ControlOverlayView(
         val spec = telemetry.carSpec
         val d = density
         val panelW = min(width * 0.62f, 460f * d)
-        val panelH = 150f * d
+        val panelH = 186f * d
         val left = (width - panelW) / 2f
         val top = height - panelH - 16f * d
         rect.set(left, top, left + panelW, top + panelH)
@@ -405,6 +415,25 @@ class ControlOverlayView(
         rightArrow.set(left + panelW - 64f * d, top + 20f * d, left + panelW, top + 90f * d)
         canvas.drawText("◀", leftArrow.centerX(), leftArrow.centerY() + 12f * d, arrowPaint)
         canvas.drawText("▶", rightArrow.centerX(), rightArrow.centerY() + 12f * d, arrowPaint)
+
+        // "Safe driving" checkbox: guardrails along the track.
+        val box = 18f * d
+        val label = "SAFE DRIVING  ·  fences along the track"
+        labelPaint.textAlign = Paint.Align.LEFT
+        val rowW = box + 10f * d + labelPaint.measureText(label)
+        val bx = width / 2f - rowW / 2f
+        val by = top + 112f * d
+        safeBox.set(bx - 8f * d, by - 8f * d, bx + rowW + 8f * d, by + box + 8f * d)
+        rect.set(bx, by, bx + box, by + box)
+        canvas.drawRoundRect(rect, 4f * d, 4f * d, if (settings.safeDriving) startPaint else trackPaint)
+        boxPaint.strokeWidth = 2f * d
+        canvas.drawRoundRect(rect, 4f * d, 4f * d, boxPaint)
+        if (settings.safeDriving) {
+            canvas.drawLine(bx + box * 0.22f, by + box * 0.52f, bx + box * 0.43f, by + box * 0.74f, boxPaint)
+            canvas.drawLine(bx + box * 0.43f, by + box * 0.74f, bx + box * 0.8f, by + box * 0.28f, boxPaint)
+        }
+        canvas.drawText(label, bx + box + 10f * d, by + box * 0.5f + labelPaint.textSize * 0.35f, labelPaint)
+        labelPaint.textAlign = Paint.Align.CENTER
 
         // START button.
         val bw = 150f * d

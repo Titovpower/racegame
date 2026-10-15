@@ -26,6 +26,9 @@ class Settings(context: Context) {
         set(v) { field = v.coerceIn(MIN, MAX); save() }
     var brake = prefs.getFloat(BRAKE, 1f)
         set(v) { field = v.coerceIn(MIN, MAX); save() }
+    /** The car picker's "safe driving" checkbox, remembered for the next race. */
+    var safeDriving = prefs.getBoolean(SAFE_DRIVING, false)
+        set(v) { field = v; prefs.edit().putBoolean(SAFE_DRIVING, v).apply() }
 
     private val graphics = IntArray(GraphicsOption.values().size) { k ->
         val o = GraphicsOption.values()[k]
@@ -57,5 +60,6 @@ class Settings(context: Context) {
         private const val STEERING = "steering"
         private const val THROTTLE = "throttle"
         private const val BRAKE = "brake"
+        private const val SAFE_DRIVING = "safe_driving"
     }
 }

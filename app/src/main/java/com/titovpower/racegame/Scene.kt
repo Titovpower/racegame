@@ -40,6 +40,7 @@ class Scene(private val game: GameState) {
                     GlbPart("props", SceneMeshes.props(w)),
                     GlbPart("vegetation", SceneMeshes.vegetation(w)),
                     GlbPart(FOLIAGE_NODE, SceneMeshes.foliage(w), Surfacing.FOLIAGE),
+                    GlbPart(FENCE_NODE, SceneMeshes.fence(w.track)),
                 ),
             ),
             WHEEL to Glb.write(listOf(GlbPart("wheel", CarModel.wheel()))),
@@ -279,6 +280,8 @@ class Scene(private val game: GameState) {
         const val LIGHTS_NODE = "lights"
         /** World node holding the grass blades and leaves (kept out of the shadow maps). */
         const val FOLIAGE_NODE = "foliage"
+        /** World node holding the guardrails, shown only with "safe driving". */
+        const val FENCE_NODE = "fence"
 
         const val SCREEN_SHIFT = 0.32f
         const val NEAR = 0.5f

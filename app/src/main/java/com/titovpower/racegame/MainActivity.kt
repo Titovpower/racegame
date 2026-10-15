@@ -23,6 +23,7 @@ class MainActivity : Activity() {
         sound = EngineSound(telemetry)
 
         val settings = Settings(this)
+        controls.safeDriving = settings.safeDriving
         val surface = SurfaceView(this)
         renderer = FilamentRenderer(this, surface, controls, telemetry, settings)
         val root = FrameLayout(this)

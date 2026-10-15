@@ -110,6 +110,48 @@ object SceneMeshes {
         return b.toArray()
     }
 
+    /**
+     * Steel guardrails along both edges of the track for "safe driving": a broad rail at bumper
+     * height and a thin top rail on posts, just outside the curbs. Hidden unless it is switched on.
+     */
+    fun fence(track: Track): FloatArray {
+        val b = MeshBuilder(1 shl 17)
+        val n = track.samples
+        val steel = Rgb.hex(0xB8BEC4)
+        val post = Rgb.hex(0x6E747A)
+        fun at(i: Int, offset: Float, y: Float): V3 {
+            val t = track.tangent(i)
+            return V3(track.xs[i] + t.z * offset, y, track.zs[i] - t.x * offset)
+        }
+        for (side in floatArrayOf(1f, -1f)) {
+            val inner = track.fenceOffset * side
+            fun rail(i: Int, j: Int, y0: Float, y1: Float, thickness: Float, color: Rgb) {
+                val outer = inner + thickness * side
+                b.hexahedron(
+                    arrayOf(
+                        at(i, inner, y0), at(j, inner, y0), at(j, outer, y0), at(i, outer, y0),
+                        at(i, inner, y1), at(j, inner, y1), at(j, outer, y1), at(i, outer, y1),
+                    ),
+                    color,
+                )
+            }
+            for (i in 0 until n) {
+                val j = (i + 1) % n
+                b.gloss = 0.5f
+                rail(i, j, 0.42f, 0.78f, 0.06f, steel)
+                rail(i, j, 1.02f, 1.1f, 0.06f, steel)
+                if (i % 2 == 0) {
+                    b.gloss = 0.2f
+                    val t = track.tangent(i)
+                    val c = at(i, inner + 0.16f * side, 0.55f)
+                    b.orientedBox(c, V3(t.z, 0f, -t.x) * 0.07f, V3(0f, 0.55f, 0f), t * 0.07f, post)
+                }
+            }
+        }
+        b.gloss = 0f
+        return b.toArray()
+    }
+
     /** Start gantry and grandstand. */
     fun props(world: World): FloatArray {
         val b = MeshBuilder(1 shl 16)

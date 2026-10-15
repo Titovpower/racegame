@@ -11,6 +11,8 @@ class Controls {
     val pick = java.util.concurrent.atomic.AtomicInteger(0)
     /** Set by the UI when START is pressed in the car picker. */
     @Volatile var start = false
+    /** The car picker's "safe driving" checkbox: guardrails along the track. */
+    @Volatile var safeDriving = false
 }
 
 /** Values the HUD and the engine sound read, written by the game loop. */

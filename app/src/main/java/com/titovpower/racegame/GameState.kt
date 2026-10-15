@@ -63,6 +63,8 @@ class GameState(val world: World, val opponents: Int = 8, val totalLaps: Int = 5
     /** The car the player drives, chosen before the race. */
     var playerSpec = CarSpec.PORSCHE
         private set
+    /** "Safe driving": guardrails along both edges of the track keep every car on the road. */
+    var safeDriving = false
     val racers = ArrayList<Racer>()
     /** The player's automatic gearbox (drives the engine sound and rev counter). */
     val gearbox = Gearbox { playerSpec }
@@ -185,6 +187,8 @@ class GameState(val world: World, val opponents: Int = 8, val totalLaps: Int = 5
             }
         }
 
+        if (safeDriving) guardrails(car, track.nearestLocal(car.x, car.z, near.index).index)
+
         // Invisible fence where the hills start.
         var after = track.nearestLocal(car.x, car.z, near.index)
         if (after.distance > world.driveRadius) {
@@ -194,6 +198,43 @@ class GameState(val world: World, val opponents: Int = 8, val totalLaps: Int = 5
             after = near
         }
         updateProgress(r, dt, after.index)
+    }
+
+    /**
+     * Keeps [car] inside the guardrails: pushed back to the rail, it slides along it and loses the
+     * speed that went into the rail (a head-on hit bounces it back like any other crash).
+     */
+    private fun guardrails(car: CarPhysics, index: Int) {
+        val track = world.track
+        val c = track.closestPoint(car.x, car.z, index)
+        val ox = car.x - c[0]
+        val oz = car.z - c[1]
+        val dist = sqrt(ox * ox + oz * oz)
+        val limit = track.fenceOffset - CAR_HALF_WIDTH
+        if (dist <= limit) return
+        val nx = ox / dist
+        val nz = oz / dist
+        car.x = c[0] + nx * limit
+        car.z = c[1] + nz * limit
+        // How much of the car's motion points into the rail (0 = along it, 1 = straight in).
+        val dir = if (car.speed >= 0f) 1f else -1f
+        val fx = sin(car.yaw) * dir
+        val fz = cos(car.yaw) * dir
+        val into = fx * nx + fz * nz
+        if (into <= 0f) return
+        if (into > 0.85f) {
+            car.bump()
+            return
+        }
+        car.speed *= 1f - 0.8f * into
+        // Turn the car along the rail.
+        val ax = fx - nx * into
+        val az = fz - nz * into
+        val along = atan2(ax * dir, az * dir)
+        var d = along - car.yaw
+        while (d > PI) d -= (2 * PI).toFloat()
+        while (d < -PI) d += (2 * PI).toFloat()
+        car.yaw += d * 0.6f
     }
 
     private fun updateProgress(r: Racer, dt: Float, index: Int) {
@@ -310,6 +351,8 @@ class GameState(val world: World, val opponents: Int = 8, val totalLaps: Int = 5
 
     companion object {
         const val CAR_RADIUS = 1.1f
+        /** Half a car's width, for the guardrails. */
+        const val CAR_HALF_WIDTH = 1.0f
         const val COUNTDOWN = 3.5f
         const val PLAYER_COLOR = 0xC8102E
 

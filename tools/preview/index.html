@@ -173,6 +173,7 @@ async function main() {
     gl.bindFramebuffer(gl.FRAMEBUFFER, shadowFbo[k]); gl.clear(gl.DEPTH_BUFFER_BIT);
     gl.uniformMatrix4fv(u(shadowProgram, 'uLightVP'), false, k ? frame.lightVP1 : frame.lightVP0);
     for (const it of (k ? items.slice(0, 1) : items)) for (const p of it.m.prims) {
+      if (p.node === 'fence' && !frame.safe) continue;
       if (p.material.blend || p.material.name === "FOLIAGE") continue;
       gl.uniformMatrix4fv(u(shadowProgram, 'uModel'), false, mul(it.matrix, p.matrix));
       gl.bindVertexArray(p.vao); gl.drawElements(gl.TRIANGLES, p.count, gl.UNSIGNED_INT, 0);
@@ -222,6 +223,7 @@ async function main() {
     for (const it of items) {
       const outerMirrored = det3(it.matrix) < 0;
       for (const pr of it.m.prims) {
+        if (pr.node === 'fence' && !frame.safe) continue;
         const m = pr.material;
         if (m.blend !== blend) continue;
         gl.uniformMatrix4fv(u(p, 'uModel'), false, mul(it.matrix, pr.matrix));
@@ -246,7 +248,7 @@ async function main() {
 function picker(frame) {
   const g = document.getElementById('o').getContext('2d'), W = 1280, H = 640, d = 2;
   const [brand, model, hp, zt, top] = frame.car.split('|');
-  const pw = Math.min(W * 0.62, 460 * d), ph = 150 * d, left = (W - pw) / 2, t = H - ph - 16 * d;
+  const pw = Math.min(W * 0.62, 460 * d), ph = 186 * d, left = (W - pw) / 2, t = H - ph - 16 * d;
   g.fillStyle = 'rgba(12,14,18,0.59)'; g.beginPath(); g.roundRect(left, t, pw, ph, 16 * d); g.fill();
   g.textAlign = 'center'; g.shadowColor = 'black'; g.shadowBlur = 3;
   g.font = `bold ${12*d}px sans-serif`; g.fillStyle = 'rgba(255,255,255,0.8)'; g.fillText('CHOOSE YOUR CAR', W / 2, t + 22 * d);
@@ -256,6 +258,16 @@ function picker(frame) {
   g.fillText(`${hp} hp   ·   0-100 km/h ${Number(zt).toFixed(1)} s   ·   ${top} km/h`, W / 2, t + 94 * d);
   g.fillStyle = 'white'; g.font = `bold ${34*d}px sans-serif`;
   g.fillText('◀', left + 32 * d, t + 55 * d + 12 * d); g.fillText('▶', left + pw - 32 * d, t + 55 * d + 12 * d);
+  // "Safe driving" checkbox.
+  const box = 18 * d, label = 'SAFE DRIVING  ·  fences along the track';
+  g.font = `bold ${15*d}px sans-serif`; g.textAlign = 'left';
+  const rowW = box + 10 * d + g.measureText(label).width, bx = W / 2 - rowW / 2, cy = t + 112 * d;
+  g.shadowBlur = 0;
+  g.fillStyle = frame.safe ? 'rgb(200,16,46)' : 'rgba(0,0,0,0.43)'; g.beginPath(); g.roundRect(bx, cy, box, box, 4 * d); g.fill();
+  g.strokeStyle = 'white'; g.lineWidth = 2 * d; g.lineCap = 'round'; g.stroke();
+  if (frame.safe) { g.beginPath(); g.moveTo(bx + box * 0.22, cy + box * 0.52); g.lineTo(bx + box * 0.43, cy + box * 0.74); g.lineTo(bx + box * 0.8, cy + box * 0.28); g.stroke(); }
+  g.shadowBlur = 3; g.fillStyle = 'white'; g.fillText(label, bx + box + 10 * d, cy + box * 0.5 + 15 * d * 0.35);
+  g.textAlign = 'center';
   g.shadowBlur = 0;
   const bw = 150 * d, bh = 34 * d, by = t + ph - bh - 10 * d;
   g.fillStyle = 'rgb(200,16,46)'; g.beginPath(); g.roundRect(W / 2 - bw / 2, by, bw, bh, bh / 2); g.fill();
