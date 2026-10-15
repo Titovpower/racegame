@@ -176,7 +176,7 @@ class CarSpec(
         val LAMBORGHINI = CarSpec("Lamborghini", "Huracán EVO", 1550f, 470f, 325f, 2.9f, true, 2.62f, 1.30f, 0.20f, 1.30f, Tyre(245, 30, 20), Tyre(305, 30, 20), engine = Engine.V10, redline = 8500f, gears = 7)
         val PORSCHE = CarSpec("Porsche", "911 GT3 RS", 1450f, 386f, 296f, 3.2f, false, 2.46f, 1.38f, 0.40f, 1.38f, Tyre(275, 35, 20), Tyre(335, 30, 21), engine = Engine.FLAT6, redline = 9000f, gears = 7)
         val BMW = CarSpec("BMW", "M4 Competition", 1775f, 390f, 290f, 3.5f, true, 2.86f, 1.12f, 0.05f, 1.20f, Tyre(275, 35, 19), Tyre(285, 30, 20), engine = Engine.INLINE6, redline = 7200f, gears = 8)
-        val MERCEDES = CarSpec("Mercedes-AMG", "ONE", 1695f, 782f, 352f, 2.9f, true, 2.72f, 1.40f, 0.40f, 1.40f, Tyre(285, 35, 19), Tyre(335, 30, 20), engine = Engine.V6, redline = 11000f, gears = 7)
+        val MERCEDES = CarSpec("Mercedes-AMG", "GT R", 1630f, 430f, 318f, 3.6f, false, 2.63f, 1.25f, 0.20f, 1.28f, Tyre(275, 35, 19), Tyre(325, 30, 20), engine = Engine.V8, redline = 7200f, gears = 7)
         val AUDI = CarSpec("Audi", "R8 V10 performance", 1595f, 456f, 331f, 3.1f, true, 2.65f, 1.25f, 0.15f, 1.28f, Tyre(245, 30, 20), Tyre(305, 30, 20), engine = Engine.V10, redline = 8700f, gears = 7)
         val ASTON = CarSpec("Aston Martin", "Vantage", 1605f, 489f, 325f, 3.5f, false, 2.70f, 1.20f, 0.12f, 1.25f, Tyre(275, 35, 21), Tyre(325, 30, 21), engine = Engine.V8, redline = 7000f, gears = 8)
 

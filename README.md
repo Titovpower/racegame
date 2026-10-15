@@ -25,7 +25,7 @@ after real cars (proportions from published dimensions, brand names only, no log
 | Lamborghini Huracán EVO | 639 hp | 1550 kg | 2.9 s | 325 km/h | AWD | 245/30 R20 / 305/30 R20 |
 | Porsche 911 GT3 RS | 525 hp | 1450 kg | 3.2 s | 296 km/h | RWD | 275/35 R20 / 335/30 R21 |
 | BMW M4 Competition | 530 hp | 1775 kg | 3.5 s | 290 km/h | AWD | 275/35 R19 / 285/30 R20 |
-| Mercedes-AMG ONE | 1063 hp | 1695 kg | 2.9 s | 352 km/h | AWD | 285/35 R19 / 335/30 R20 |
+| Mercedes-AMG GT R | 585 hp | 1630 kg | 3.6 s | 318 km/h | RWD | 275/35 R19 / 325/30 R20 |
 | Audi R8 V10 performance | 620 hp | 1595 kg | 3.1 s | 331 km/h | AWD | 245/30 R20 / 305/30 R20 |
 | Aston Martin Vantage | 665 hp | 1605 kg | 3.5 s | 325 km/h | RWD | 275/35 R21 / 325/30 R21 |
 
@@ -74,7 +74,7 @@ The HUD shows speed, the current ground type, position, lap and lap times.
 ## Engine sound
 
 Each car has its engine layout (Lamborghini and Audi V10, Porsche flat-six, BMW inline-six,
-Mercedes-AMG ONE hybrid V6 revving to 11,000 rpm, Aston Martin V8), its redline and number of gears. An automatic gearbox shifts
+Mercedes-AMG and Aston Martin V8), its redline and number of gears. An automatic gearbox shifts
 up near the redline and down as you slow; the HUD shows a rev bar, rpm and gear. The sound is
 synthesized live from engine speed, throttle and layout (no recordings): the firing frequency and
 its harmonics give the pitch, a V8 gets its uneven-firing burble, throttle adds roar, and shifts
@@ -107,8 +107,8 @@ put it in the app as glTF binary and it replaces the generated body:
 | `app/src/main/assets/models/cars/r8.glb` | Audi |
 | `app/src/main/assets/models/cars/vantage.glb` | Aston Martin |
 
-`911.glb` (Porsche 911 GT3 RS) and `lambo.glb` (Lamborghini Huracán EVO, prepared with
-`--paint arancio`) are models Andy supplied.
+`911.glb` (Porsche 911 GT3 RS), `lambo.glb` (Lamborghini Huracán EVO, prepared with
+`--paint arancio`) and `amggt.glb` (Mercedes-AMG GT) are models Andy supplied.
 
 Run a new model through `tools/models/prepare_car.py in.glb out.glb` first. It turns a model
 whose nose points to -Z round (pass `--nose +z` if it already faces +Z), bakes all node
