@@ -102,9 +102,16 @@ put it in the app as glTF binary and it replaces the generated body:
 | `app/src/main/assets/models/cars/r8.glb` | Audi |
 | `app/src/main/assets/models/cars/vantage.glb` | Aston Martin |
 
-The model should be in meters, nose towards +Z, Y up, origin on the ground under the car's
-center. It brings its own wheels (the generated ones are hidden), and every material with
-"paint" in its name gets the driver's color. The renderer reads positions, normals, vertex
+`911.glb` is a Porsche 911 GT3 RS model Andy supplied.
+
+Run a new model through `tools/models/prepare_car.py in.glb out.glb` first. It turns a model
+whose nose points to -Z round (pass `--nose +z` if it already faces +Z), bakes all node
+transforms and merges parts by material so a model of a thousand parts draws in a dozen calls.
+The model should be in meters, Y up, origin on the ground under the car's center. It brings
+its own wheels (the generated ones are hidden): nodes named like "Front wheel L" with their
+origin at the hub become `wheel_0`..`wheel_3`, which the game spins and steers. Every
+material with "paint" in its name gets the driver's color, and a "light bar" or "tail"
+material lights up under braking. The renderer reads positions, normals, vertex
 colors, base color textures and metallic/roughness/clear-coat/emission values; normal and
 roughness maps are ignored.
 

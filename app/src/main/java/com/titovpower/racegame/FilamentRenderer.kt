@@ -77,6 +77,8 @@ class FilamentRenderer(
     private val carAssets = HashMap<String, FilamentAsset>()
     /** Car assets loaded from real models; those bring their own wheels. */
     private val customCars = HashSet<String>()
+    /** Wheel nodes of real models ("wheel_0".."wheel_3", see tools/models) with their hub positions. */
+    private val customWheels = HashMap<String, List<Pair<Int, FloatArray>>>()
     private val inScene = HashSet<String>()
     private val wheelAssets = ArrayList<FilamentAsset>()
     private var width = 1
@@ -207,6 +209,13 @@ class FilamentRenderer(
                                 val a = load(custom)
                                 repaint(a, paint.toInt(16))
                                 customCars.add(key)
+                                customWheels[key] = (0 until 4).mapNotNull { k ->
+                                    val e = a.getFirstEntityByName("wheel_$k")
+                                    if (e == 0) return@mapNotNull null
+                                    val rest = FloatArray(16)
+                                    engine.transformManager.getTransform(engine.transformManager.getInstance(e), rest)
+                                    e to floatArrayOf(rest[12], rest[13], rest[14], k.toFloat())
+                                }
                                 carAssets[key] = a
                             } else {
                                 carAssets[key] = load(glb)
@@ -353,9 +362,20 @@ class FilamentRenderer(
             if (lights != 0) {
                 val ri = rm.getInstance(lights)
                 if (ri != 0) {
-                    val glow = if (pose.braking) BRAKE_GLOW else 0f
+                    // Real models' tail lights stay lit, brighter under braking.
+                    val glow = if (pose.braking) BRAKE_GLOW else if (pose.asset in customCars) TAIL_GLOW else 0f
                     rm.getMaterialInstanceAt(ri, 0).setParameter("emissiveFactor", glow, glow * 0.05f, glow * 0.03f)
                 }
+            }
+        }
+        for (pose in poses) {
+            for ((e, hub) in customWheels[pose.asset] ?: continue) {
+                // Spin about the axle; the front pair (wheel_0 and wheel_1) also steers.
+                Matrix.setIdentityM(wheelMatrix, 0)
+                Matrix.translateM(wheelMatrix, 0, hub[0], hub[1], hub[2])
+                if (hub[3] < 2f) Matrix.rotateM(wheelMatrix, 0, pose.wheelSteer, 0f, 1f, 0f)
+                Matrix.rotateM(wheelMatrix, 0, pose.wheelSpin, 1f, 0f, 0f)
+                tm.setTransform(tm.getInstance(e), wheelMatrix)
             }
         }
         for ((k, m) in s.wheels().withIndex()) {
@@ -376,7 +396,9 @@ class FilamentRenderer(
         )
     }
 
+    private val wheelMatrix = FloatArray(16)
     private val BRAKE_GLOW = 40f
+    private val TAIL_GLOW = 3f
 }
 
 /** Optional glTF models dropped into the app's assets (see README), used instead of the generated ones. */

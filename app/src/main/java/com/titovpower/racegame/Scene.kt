@@ -7,8 +7,17 @@ import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.sin
 
-/** One car to draw this frame: which asset, where, and whether its brake lights are on. */
-class CarPose(val asset: String, val model: FloatArray, val braking: Boolean)
+/**
+ * One car to draw this frame: which asset, where, whether its brake lights are on, and how far
+ * its wheels have rolled and the front wheels are steered (degrees, for models with own wheels).
+ */
+class CarPose(
+    val asset: String,
+    val model: FloatArray,
+    val braking: Boolean,
+    val wheelSpin: Float = 0f,
+    val wheelSteer: Float = 0f,
+)
 
 /**
  * What to draw and from where, independent of the rendering engine: the 3D assets (as glTF
@@ -223,7 +232,11 @@ class Scene(private val game: GameState) {
         Matrix.translateM(m, 0, 0f, 0.04f, 0f)
         Matrix.rotateM(m, 0, pitch, 1f, 0f, 0f)
         Matrix.rotateM(m, 0, roll, 0f, 0f, 1f)
-        CarPose(carKey(CarModel.styleFor(r.spec), r.color), m, r.braking)
+        CarPose(
+            carKey(CarModel.styleFor(r.spec), r.color), m, r.braking,
+            wheelSpin = Math.toDegrees(car.wheelSpin.toDouble()).toFloat(),
+            wheelSteer = -Math.toDegrees(car.wheelAngle.toDouble()).toFloat(),
+        )
     }
 
     /** Four wheel transforms per racer, in racer order (front-left, front-right, rear-left, rear-right). */
